@@ -19,6 +19,7 @@ function matchesKey(data: string, key: string): boolean {
     end: ["\u001b[F", "\u001b[4~", "end"],
     "ctrl+u": ["\u0015", "ctrl+u"],
     "ctrl+s": ["\u0013", "ctrl+s"],
+    "ctrl+o": ["\u000f", "ctrl+o"],
     "ctrl+n": ["\u000e", "ctrl+n", "action:new"],
     "ctrl+e": ["\u0005", "ctrl+e", "action:edit"],
     "ctrl+d": ["\u0004", "ctrl+d", "action:delete"],
@@ -184,12 +185,13 @@ class MacroPickerComponent {
     const lines: string[] = [];
     lines.push(`${border("╭─ ")}${style(this.theme, "accent", title)}${border(` ${"─".repeat(Math.max(0, inner - visibleLength(title) - 3))}╮`)}`);
     if (this.mode === "form" && this.form) {
-      lines.push(row(` ${style(this.theme, "accent", `${this.form.mode} macro`)} · Tab fields · Ctrl-S save · Esc cancel`));
+      lines.push(row(` ${style(this.theme, "accent", `${this.form.mode} macro`)} · ${style(this.theme, "muted", "Tab fields · Enter save · Ctrl-O newline · Esc cancel")}`));
       for (const f of formFields) {
-        const active = this.form.focus === f ? style(this.theme, "accent", ">") : " ";
-        const label = `${active} ${f}: `;
-        const value = this.form.fields[f].replace(/\n/g, "↵");
-        lines.push(row(label + value));
+        const active = this.form.focus === f;
+        const marker = active ? style(this.theme, "accent", "›") : " ";
+        const label = style(this.theme, "muted", `${f}:`);
+        const value = this.renderFormValue(f);
+        lines.push(row(`${marker} ${label} ${value}`));
       }
       if (this.form.error) lines.push(row(` ${style(this.theme, "error", this.form.error)}`));
     } else if (this.mode === "confirmDelete") {
@@ -244,9 +246,22 @@ class MacroPickerComponent {
     if (matchesKey(data, "end")) { form.cursors[field] = value.length; this.requestRender(); return; }
     if (matchesKey(data, "backspace")) { if (cursor > 0) { form.fields[field] = value.slice(0, cursor - 1) + value.slice(cursor); form.cursors[field] = cursor - 1; } this.requestRender(); return; }
     if (matchesKey(data, "delete")) { form.fields[field] = value.slice(0, cursor) + value.slice(cursor + 1); this.requestRender(); return; }
-    if (matchesKey(data, "enter") || matchesKey(data, "return")) { if (field === "body") this.insertText("\n"); else form.focus = formFields[formFields.indexOf(field) + 1]!; this.requestRender(); return; }
+    if (matchesKey(data, "ctrl+o")) { if (field === "body") this.insertText("\n"); this.requestRender(); return; }
+    if (matchesKey(data, "enter") || matchesKey(data, "return")) { void this.saveForm().then(() => this.requestRender()).catch((error) => this.showFormError(error)); return; }
     if (data.length === 1 && data.charCodeAt(0) >= 32) this.insertText(data);
     this.requestRender();
+  }
+  private renderFormValue(field: FormField): string {
+    const form = this.form!;
+    const raw = form.fields[field];
+    const cursor = form.focus === field ? form.cursors[field] : -1;
+    const display = raw.replace(/\n/g, "↵");
+    const displayCursor = cursor < 0 ? -1 : raw.slice(0, cursor).replace(/\n/g, "↵").length;
+    if (displayCursor < 0) return display || style(this.theme, "dim", field === "body" ? "(prompt body)" : "(empty)");
+    const before = display.slice(0, displayCursor);
+    const current = display[displayCursor] ?? " ";
+    const after = display.slice(displayCursor + (display[displayCursor] ? 1 : 0));
+    return `${before}${style(this.theme, "accent", `▌${current}`)}${after}`;
   }
   private insertText(text: string): void { const f = this.form!; const field = f.focus; const cursor = f.cursors[field]; f.fields[field] = f.fields[field].slice(0, cursor) + text + f.fields[field].slice(cursor); f.cursors[field] = cursor + text.length; }
   private showFormError(error: unknown): void { if (this.form) { this.form.error = error instanceof Error ? error.message : String(error); this.requestRender(); } else this.showError(error); }
