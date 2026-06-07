@@ -87,6 +87,22 @@ describe("openMacroPicker", () => {
     expect(bottom).toMatch(/^\x1b\[90m╰─+╯\x1b\[0m$/);
   });
 
+  it("form render shows muted labels and a visible active-field cursor", async () => {
+    const s = await store();
+    let component: TestComponent | undefined;
+    const theme = { fg: (color: string, text: string) => `[${color}:${text}]` };
+    const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, theme, {}, vi.fn()); }) };
+    await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() }, { query: "newmacro" });
+
+    component!.handleInput("n");
+    const rendered = component!.render(100).join("\n");
+
+    expect(rendered).toContain("[muted:name:]");
+    expect(rendered).toContain("[muted:description:]");
+    expect(rendered).toContain("[muted:body:]");
+    expect(rendered).toContain("[accent:▌ ]");
+  });
+
   it("inline create from empty query does not use Pi dialogs", async () => {
     const s = await store();
     let component: TestComponent | undefined;
@@ -98,7 +114,7 @@ describe("openMacroPicker", () => {
     for (const ch of "desc") component!.handleInput(ch);
     component!.handleInput("\t");
     for (const ch of "Body") component!.handleInput(ch);
-    component!.handleInput("\u0013");
+    component!.handleInput("\r");
 
     await vi.waitFor(async () => expect(await s.getMacro("newmacro")).toBeDefined());
     expect(ui.input).not.toHaveBeenCalled(); expect(ui.editor).not.toHaveBeenCalled(); expect(ui.confirm).not.toHaveBeenCalled();
@@ -248,7 +264,7 @@ describe("openMacroPicker", () => {
     let component: TestComponent | undefined; const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() }, { query: "compose" });
 
-    component!.handleInput("n"); component!.handleInput("\t"); component!.handleInput("\t"); component!.handleInput("A"); component!.handleInput("\u001b[D"); component!.handleInput("B"); component!.handleInput("\u001b[F"); component!.handleInput("\r"); component!.handleInput("C"); component!.handleInput("\u0013");
+    component!.handleInput("n"); component!.handleInput("\t"); component!.handleInput("\t"); component!.handleInput("A"); component!.handleInput("\u001b[D"); component!.handleInput("B"); component!.handleInput("\u001b[F"); component!.handleInput("\u000f"); component!.handleInput("C"); component!.handleInput("\r");
 
     await vi.waitFor(async () => expect(await s.getMacro("compose")).toMatchObject({ body: "BA\nC" }));
   });
