@@ -1,0 +1,43 @@
+{
+  "name": "pi-macro",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Reusable prompt macros for Pi.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "macro",
+    "prompt",
+    "snippets"
+  ],
+  "homepage": "https://github.com/bnema/pi-macro#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bnema/pi-macro.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bnema/pi-macro/issues"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "extensions/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.78.1",
+    "typescript": "^6.0.3"
+  }
+}
