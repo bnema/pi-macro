@@ -23,6 +23,7 @@
     "node": ">=20"
   },
   "files": [
+    "dist/",
     "extensions/",
     "src/",
     "README.md",
@@ -34,10 +35,15 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepack": "npm run build"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.78.1",
-    "typescript": "^6.0.3"
+    "@types/node": "^25.9.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.0.14"
   }
 }
