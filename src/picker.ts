@@ -114,7 +114,7 @@ export async function openMacroPicker(ctx: CommandContext, deps: MacroCommandDep
     component.onChange = async () => { await component.reloadAndPreview(); tui.requestRender(); };
     void component.reloadAndPreview().then(() => tui.requestRender()).catch((error) => component.showError(error));
     return component;
-  }, { overlay: true, overlayOptions: { width: "80%", minWidth: 64, maxHeight: "80%", anchor: "center", margin: 1 } });
+  }, { overlay: true, overlayOptions: { width: "90%", maxHeight: "80%", anchor: "center" } });
 }
 
 type PickerMode = "list" | "form" | "confirmDelete" | "preview";
@@ -176,11 +176,13 @@ class MacroPickerComponent {
   }
 
   render(width: number): string[] {
-    const w = Math.min(Math.max(52, width), 96);
-    const inner = w - 2;
+    const frameWidth = Math.max(20, width);
+    const inner = Math.max(10, frameWidth - 2);
     const row = (content = "") => style(this.theme, "border", "│") + padAnsi(truncateAnsi(content, inner), inner) + style(this.theme, "border", "│");
+    const border = (text: string) => style(this.theme, "border", text);
+    const title = this.theme.bold?.("/macro") ?? "/macro";
     const lines: string[] = [];
-    lines.push(style(this.theme, "border", `╭─ ${style(this.theme, "accent", this.theme.bold?.("/macro") ?? "/macro")} ${"─".repeat(Math.max(0, inner - 9))}╮`));
+    lines.push(`${border("╭─ ")}${style(this.theme, "accent", title)}${border(` ${"─".repeat(Math.max(0, inner - visibleLength(title) - 3))}╮`)}`);
     if (this.mode === "form" && this.form) {
       lines.push(row(` ${style(this.theme, "accent", `${this.form.mode} macro`)} · Tab fields · Ctrl-S save · Esc cancel`));
       for (const f of formFields) {
@@ -212,8 +214,8 @@ class MacroPickerComponent {
       for (const line of formatPreview(snap.preview, inner - 2, 8, this.theme)) lines.push(row(` ${line}`));
     }
     if (this.message) lines.push(row(` ${style(this.theme, this.message.level === "error" ? "error" : this.message.level === "warning" ? "warning" : "muted", this.message.text)}`));
-    lines.push(style(this.theme, "border", `╰${"─".repeat(inner)}╯`));
-    return lines.map((line) => visibleLength(line) > width ? truncateAnsi(line, width, "") : line);
+    lines.push(border(`╰${"─".repeat(inner)}╯`));
+    return lines.map((line) => visibleLength(line) > frameWidth ? truncateAnsi(line, frameWidth, "") : line);
   }
 
   private selectedOrThrow(): Macro { const macro = this.state.selected(); if (!macro) throw new Error("No macro selected."); return macro; }

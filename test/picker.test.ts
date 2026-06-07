@@ -46,7 +46,8 @@ describe("MacroPickerState", () => {
 
 describe("openMacroPicker", () => {
   type TestComponent = { handleInput(data: string): void; render(width: number): string[] };
-  type TestFactory = (tui: { requestRender: () => void }, theme: Record<string, never>, keybindings: Record<string, never>, done: () => void) => TestComponent;
+  type TestTheme = { fg?: (color: string, text: string) => string; bg?: (color: string, text: string) => string };
+  type TestFactory = (tui: { requestRender: () => void }, theme: TestTheme, keybindings: Record<string, never>, done: () => void) => TestComponent;
 
   function ctx(ui: Record<string, unknown>): CommandContext {
     return { mode: "tui", hasUI: true, cwd: process.cwd(), isIdle: () => true, ui: ui as CommandContext["ui"] };
@@ -54,6 +55,36 @@ describe("openMacroPicker", () => {
 
   it("fails clearly outside TUI", async () => {
     await expect(openMacroPicker({ mode: "print", hasUI: false }, { store: await store(), sendUserMessage: vi.fn() })).rejects.toThrow("only available in Pi TUI mode");
+  });
+
+  it("uses pi-fzf-style percentage overlay sizing", async () => {
+    const ui = { custom: vi.fn(async (_factory: TestFactory, _options: unknown) => undefined) };
+
+    await openMacroPicker(ctx(ui), { store: await store(), sendUserMessage: vi.fn() });
+
+    expect(ui.custom).toHaveBeenCalledWith(expect.any(Function), {
+      overlay: true,
+      overlayOptions: { width: "90%", maxHeight: "80%", anchor: "center" },
+    });
+  });
+
+  it("renders a full-width frame with consistently styled outer borders", async () => {
+    const s = await store();
+    await s.createMacro({ name: "review", body: "Body" });
+    let component: TestComponent | undefined;
+    const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
+    await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
+
+    const lines = component!.render(140);
+    const ansi = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+    const plain = (text: string) => text.replace(ansi, "");
+    const bottom = lines[lines.length - 1]!;
+
+    expect(plain(lines[0]!).length).toBe(140);
+    expect(plain(bottom).length).toBe(140);
+    expect(lines[0]).toMatch(/^\x1b\[90m╭─ \x1b\[0m/);
+    expect(lines[0]).toMatch(/\x1b\[90m ─+╮\x1b\[0m$/);
+    expect(bottom).toMatch(/^\x1b\[90m╰─+╯\x1b\[0m$/);
   });
 
   it("inline create from empty query does not use Pi dialogs", async () => {
