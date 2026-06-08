@@ -2,13 +2,12 @@
   "name": "pi-macro",
   "version": "0.1.0",
   "type": "module",
-  "description": "Reusable prompt macros for Pi.",
+  "description": "Create and reuse prompt macros inside Pi.",
   "keywords": [
-    "pi-package",
     "pi",
-    "macro",
-    "prompt",
-    "snippets"
+    "pi-extension",
+    "macros",
+    "prompts"
   ],
   "homepage": "https://github.com/bnema/pi-macro#readme",
   "repository": {
