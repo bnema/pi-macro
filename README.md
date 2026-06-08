@@ -44,7 +44,45 @@ Macros are stored at:
 ~/.pi/macro/macros.json
 ```
 
-Useful variables include `{{input}}`, `{{args}}`, quoted arguments, and supported context variables. Sensitive or truncated previews ask for confirmation before sending.
+Override the path with:
+
+```bash
+PI_MACRO_FILE=/custom/path/macros.json
+```
+
+Directory and file permissions are private where supported (`0700` directory, `0600` file). Writes are atomic and conflict-aware.
+
+Variables use double braces with no whitespace:
+
+```text
+{{variable}}
+{{ask:question}}
+{{choice:label|option1|option2}}
+{{confirm:question}}
+```
+
+Supported variables:
+
+- Input: `{{input}}`, `{{args}}`
+- Interactive: `{{ask:question}}`, `{{choice:label|option1|option2}}`, `{{confirm:question}}`
+- Project/time: `{{cwd}}`, `{{project}}`, `{{date}}`, `{{datetime}}`
+- Git: `{{git_branch}}`, `{{git_status}}`, `{{git_diff}}`
+- Editor/diagnostics: `{{current_file}}`, `{{current_file_path}}`, `{{editor}}`, `{{diagnostics}}`
+- Conversation: `{{last_user_message}}`, `{{last_assistant_message}}`, `{{last_message}}`, `{{last_code_block}}`
+- Session: `{{session_name}}`, `{{model}}`
+
+Unknown variables, malformed braces, and whitespace such as `{{ input }}` block sending. Escape literal variable text with `\{{input}}`. Sensitive variables, interactive variables, repository variables, and truncated previews require confirmation before sending.
+
+Limits: preview values are capped, total expanded sends are capped, and send-limit violations block delivery.
+
+## Safety exclusions
+
+`pi-macro` intentionally does not support arbitrary shell, environment, file, or clipboard expansion:
+
+- `{{shell:...}}`
+- `{{env:...}}`
+- `{{file:...}}`
+- `{{clipboard}}`
 
 ## Develop
 
