@@ -16,7 +16,7 @@ Create and reuse prompt macros inside Pi.
 pi install git:github.com/bnema/pi-macro
 ```
 
-## Use
+## Slash commands
 
 ```text
 /macro
@@ -26,13 +26,25 @@ pi install git:github.com/bnema/pi-macro
 /macro-edit <name>
 /macro-delete <name>
 /macro-show <name> [input...]
+/macro-find [query]
+/macro-duplicate <source> [target]
 ```
+
+If `/macro <name>` cannot find a macro, interactive modes offer to create it. Non-interactive modes fail with `Macro not found`.
+
+## Picker and modes
+
+Interactive Pi sessions get a searchable picker with preview, create, edit, delete, duplicate, and send actions. Print, JSON, and no-UI modes avoid pickers and fail commands that need missing interactive input.
+
+## Storage and variables
 
 Macros are stored at:
 
 ```text
 ~/.pi/macro/macros.json
 ```
+
+Useful variables include `{{input}}`, `{{args}}`, quoted arguments, and supported context variables. Sensitive or truncated previews ask for confirmation before sending.
 
 ## Develop
 
