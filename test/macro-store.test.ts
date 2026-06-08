@@ -88,13 +88,29 @@ describe("MacroStore", () => {
     expect((await store.listMacros()).map((m) => m.name)).toEqual(["two"]);
   });
 
-  it("duplicate copies body and description with new timestamps", async () => {
+  it("duplicate copies body with new timestamps", async () => {
     const store = new MacroStore(await tempFile());
-    const source = await store.createMacro({ name: "source", description: "desc", body: "body" });
+    const source = await store.createMacro({ name: "source", body: "body" });
     const copy = await store.duplicateMacro("SOURCE", "copy");
-    expect(copy).toMatchObject({ name: "copy", description: "desc", body: "body" });
+    expect(copy).toMatchObject({ name: "copy", body: "body" });
     expect(copy.createdAt).not.toBe(source.createdAt);
     expect(copy.updatedAt).not.toBe(source.updatedAt);
+  });
+
+  it("migrates old description fields out of loaded macros", async () => {
+    const file = await tempFile();
+    await writeFile(file, JSON.stringify({ version: 1, macros: [{ name: "review", description: "old", body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] }), "utf8");
+    const store = new MacroStore(file);
+    expect(await store.getMacro("review")).toEqual({ name: "review", body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" });
+    await store.updateMacro("review", { body: "new" });
+    expect(await readFile(file, "utf8")).not.toContain("description");
+  });
+
+  it("saveMacroFile strips legacy description fields before writing", async () => {
+    const file = await tempFile();
+    await saveMacroFile({ version: 1, macros: [{ name: "review", description: "old", body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] } as never, file);
+    expect(await readFile(file, "utf8")).not.toContain("description");
+    expect(await loadMacroFile(file)).toEqual({ version: 1, macros: [{ name: "review", body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] });
   });
 
   it("detects concurrent save conflict", async () => {

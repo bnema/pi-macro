@@ -23,7 +23,7 @@ async function seededStore(): Promise<{ store: MacroStore; file: string }> {
 }
 
 describe("extension entrypoint", () => {
-  it("registers all macro commands and forwards plain sends through pi.sendUserMessage", async () => {
+  it("registers /macro and forwards plain sends through pi.sendUserMessage", async () => {
     const { file } = await seededStore();
     const previous = process.env.PI_MACRO_FILE;
     process.env.PI_MACRO_FILE = file;
@@ -37,7 +37,7 @@ describe("extension entrypoint", () => {
         },
       } as never);
 
-      expect([...handlers.keys()].sort()).toEqual(["macro", "macro-delete", "macro-duplicate", "macro-edit", "macro-find", "macro-list", "macro-new", "macro-show"].sort());
+      expect([...handlers.keys()]).toEqual(["macro"]);
       await handlers.get("macro")!("review this", { mode: "tui", hasUI: true, cwd: process.cwd(), isIdle: () => true, ui: { notify: vi.fn(), confirm: vi.fn(async () => true) } });
 
       expect(sendUserMessage).toHaveBeenCalledWith("Review this", undefined);

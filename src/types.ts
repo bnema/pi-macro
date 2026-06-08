@@ -1,6 +1,5 @@
 export interface Macro {
   name: string;
-  description?: string;
   body: string;
   createdAt: string;
   updatedAt: string;

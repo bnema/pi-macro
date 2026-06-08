@@ -9,11 +9,10 @@ export const MACRO_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 
 export interface CreateMacroInput {
   name: string;
-  description?: string;
   body: string;
 }
 
-export type UpdateMacroPatch = Partial<Pick<Macro, "name" | "description" | "body">>;
+export type UpdateMacroPatch = Partial<Pick<Macro, "name" | "body">>;
 
 interface Snapshot {
   path: string;
@@ -91,6 +90,7 @@ function validateMacroFile(value: unknown, source: string): MacroFile {
   if (!Array.isArray(candidate.macros)) {
     throw new MacroStoreError(`Invalid macro file at ${source}: macros must be an array.`, "invalid-shape");
   }
+  const macros: Macro[] = [];
   const seen = new Set<string>();
   for (const item of candidate.macros) {
     if (!item || typeof item !== "object" || Array.isArray(item)) throw new MacroStoreError(`Invalid macro entry at ${source}.`, "invalid-shape");
@@ -98,14 +98,16 @@ function validateMacroFile(value: unknown, source: string): MacroFile {
     if (typeof macro.name !== "string" || typeof macro.body !== "string" || typeof macro.createdAt !== "string" || typeof macro.updatedAt !== "string") {
       throw new MacroStoreError(`Invalid macro entry at ${source}: missing required string fields.`, "invalid-shape");
     }
-    if (macro.description !== undefined && typeof macro.description !== "string") throw new MacroStoreError(`Invalid macro entry at ${source}: description must be a string.`, "invalid-shape");
     assertValidName(macro.name);
     if (macro.body.length === 0) throw new MacroStoreError(`Macro ${macro.name} has an empty body.`, "empty-body");
     const lower = normalizeName(macro.name);
     if (seen.has(lower)) throw new MacroStoreError(`Duplicate macro name in ${source}: ${macro.name}.`, "duplicate-name");
     seen.add(lower);
+    const { description: _description, ...rest } = macro;
+    macros.push(rest as unknown as Macro);
   }
-  return value as MacroFile;
+  const { macros: _macros, ...rest } = candidate;
+  return { ...rest, version: MACRO_FILE_VERSION, macros } as MacroFile;
 }
 
 async function statMtimeMs(filePath: string): Promise<number | null> {
@@ -135,10 +137,10 @@ async function readSnapshot(filePath: string): Promise<Snapshot> {
 }
 
 async function writeAtomic(filePath: string, file: MacroFile): Promise<void> {
-  validateMacroFile(file, filePath);
+  const sanitized = validateMacroFile(file, filePath);
   await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
   const tempPath = path.join(path.dirname(filePath), `.macros.${process.pid}.${randomUUID()}.tmp`);
-  const data = `${JSON.stringify(file, null, 2)}\n`;
+  const data = `${JSON.stringify(sanitized, null, 2)}\n`;
   let handle: fs.FileHandle | undefined;
   try {
     handle = await fs.open(tempPath, "w", 0o600);

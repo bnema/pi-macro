@@ -65,10 +65,35 @@ async function confirm(ctx: CommandContext, message: string, title = "Confirm"):
 function filter(macros: Macro[], query: string): Macro[] {
   const q = query.trim().toLowerCase();
   if (!q) return macros;
-  return macros.filter((m) => m.name.toLowerCase().includes(q) || (m.description ?? "").toLowerCase().includes(q) || m.body.toLowerCase().includes(q));
+  return macros.filter((m) => m.name.toLowerCase().includes(q) || m.body.toLowerCase().includes(q));
+}
+
+const SUBCOMMANDS = new Set(["list", "new", "edit", "delete", "show", "find", "duplicate", "send"]);
+
+export function parseMacroSubcommand(args: string): { subcommand?: string; rest: string } {
+  const parsed = parseMacroArgs(args);
+  if (!parsed.name || !SUBCOMMANDS.has(parsed.name)) return { rest: args.trimStart() };
+  return { subcommand: parsed.name, rest: parsed.input };
 }
 
 export async function handleMacro(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
+  const subcommand = parseMacroSubcommand(args);
+  if (subcommand.subcommand) {
+    switch (subcommand.subcommand) {
+      case "list": return handleMacroList(subcommand.rest, ctx, deps);
+      case "new": return handleMacroNew(subcommand.rest, ctx, deps);
+      case "edit": return handleMacroEdit(subcommand.rest, ctx, deps);
+      case "delete": return handleMacroDelete(subcommand.rest, ctx, deps);
+      case "show": return handleMacroShow(subcommand.rest, ctx, deps);
+      case "find": return handleMacroFind(subcommand.rest, ctx, deps);
+      case "duplicate": return handleMacroDuplicate(subcommand.rest, ctx, deps);
+      case "send": return sendMacro(subcommand.rest, ctx, deps);
+    }
+  }
+  await sendMacro(args, ctx, deps);
+}
+
+async function sendMacro(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
   const parsed = parseMacroArgs(args);
   if (!parsed.name) {
     if (!hasUI(ctx)) throw err("/macro requires a name in non-interactive mode.");
@@ -106,16 +131,15 @@ export async function handleMacro(args: string, ctx: CommandContext, deps: Macro
 async function createMacroFlow(store: MacroStore, ctx: CommandContext, name?: string): Promise<Macro> {
   const finalName = name ?? await promptText(ctx, "Macro name");
   if (!isValidMacroName(finalName)) throw err(`Invalid macro name: ${finalName}.`);
-  const description = hasUI(ctx) && ctx.ui?.input ? (await ctx.ui.input("Description (optional)")) || undefined : undefined;
   const body = await promptBody(ctx);
-  const macro = await store.createMacro({ name: finalName, description, body });
+  const macro = await store.createMacro({ name: finalName, body });
   notify(ctx, `Created macro: ${macro.name}`, "info");
   return macro;
 }
 
 export async function handleMacroList(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
   const macros = filter(await storeOf(deps).listMacros(), args);
-  const text = macros.length ? macros.map((m) => `${m.name}${m.description ? ` — ${m.description}` : ""}`).join("\n") : "No macros found.";
+  const text = macros.length ? macros.map((m) => m.name).join("\n") : "No macros found.";
   output(ctx, macros, text);
 }
 export async function handleMacroNew(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
@@ -124,30 +148,27 @@ export async function handleMacroNew(args: string, ctx: CommandContext, deps: Ma
 }
 export async function handleMacroEdit(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
   const { name } = parseMacroArgs(args);
-  if (!name) throw err("/macro-edit requires a name.");
+  if (!name) throw err("/macro edit requires a name.");
   const store = storeOf(deps);
   const macro = await store.getMacro(name);
   if (!macro) throw err(`Macro not found: ${name}.`);
-  if (!hasUI(ctx)) throw err("/macro-edit requires UI input/editor.");
+  if (!hasUI(ctx)) throw err("/macro edit requires UI input/editor.");
   const nextName = await promptText(ctx, "Macro name", macro.name);
-  const description = ctx.ui?.input
-    ? (await ctx.ui.input("Description (optional)", macro.description)) || undefined
-    : macro.description;
   const body = await promptBody(ctx, macro.body);
-  const updated = await store.updateMacro(macro.name, { name: nextName, description, body });
+  const updated = await store.updateMacro(macro.name, { name: nextName, body });
   notify(ctx, `Updated macro: ${updated.name}`, "info");
 }
 export async function handleMacroDelete(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
   const { name } = parseMacroArgs(args);
-  if (!name) throw err("/macro-delete requires a name.");
-  if (!hasUI(ctx)) throw err("/macro-delete requires interactive confirmation.");
+  if (!name) throw err("/macro delete requires a name.");
+  if (!hasUI(ctx)) throw err("/macro delete requires interactive confirmation.");
   if (!await confirm(ctx, `Delete macro '${name}'?`, "Delete macro")) throw err("Cancelled.");
   await storeOf(deps).deleteMacro(name);
   notify(ctx, `Deleted macro: ${name}`, "info");
 }
 export async function handleMacroShow(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
   const { name, input } = parseMacroArgs(args);
-  if (!name) throw err("/macro-show requires a name.");
+  if (!name) throw err("/macro show requires a name.");
   const macro = await storeOf(deps).getMacro(name);
   if (!macro) throw err(`Macro not found: ${name}.`);
   const templateContext = await collectTemplateContext(input, ctx as Record<string, unknown>);
@@ -155,17 +176,17 @@ export async function handleMacroShow(args: string, ctx: CommandContext, deps: M
   output(
     ctx,
     { ...macro, preview: preview.text },
-    `${macro.name}${macro.description ? ` — ${macro.description}` : ""}\n${macro.body}\n\nPreview:\n${preview.text}`,
+    `${macro.name}\n${macro.body}\n\nPreview:\n${preview.text}`,
   );
 }
 export async function handleMacroFind(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
-  if (!hasUI(ctx)) throw err("/macro-find requires an interactive UI.");
+  if (!hasUI(ctx)) throw err("/macro find requires an interactive UI.");
   if (!deps.openPicker) throw err("Macro picker is not available yet.");
   await deps.openPicker(ctx, { query: args.trim() });
 }
 export async function handleMacroDuplicate(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
   const { name: source, input } = parseMacroArgs(args);
-  if (!source) throw err("/macro-duplicate requires a source name.");
+  if (!source) throw err("/macro duplicate requires a source name.");
   const target = input.trim() || await promptText(ctx, "New macro name");
   const macro = await storeOf(deps).duplicateMacro(source, target);
   notify(ctx, `Duplicated macro: ${source} -> ${macro.name}`, "info");
@@ -174,12 +195,5 @@ export async function handleMacroDuplicate(args: string, ctx: CommandContext, de
 export function createCommandHandlers(deps: MacroCommandDeps) {
   return {
     macro: (args: string, ctx: CommandContext) => handleMacro(args, ctx, deps),
-    "macro-list": (args: string, ctx: CommandContext) => handleMacroList(args, ctx, deps),
-    "macro-new": (args: string, ctx: CommandContext) => handleMacroNew(args, ctx, deps),
-    "macro-edit": (args: string, ctx: CommandContext) => handleMacroEdit(args, ctx, deps),
-    "macro-delete": (args: string, ctx: CommandContext) => handleMacroDelete(args, ctx, deps),
-    "macro-show": (args: string, ctx: CommandContext) => handleMacroShow(args, ctx, deps),
-    "macro-find": (args: string, ctx: CommandContext) => handleMacroFind(args, ctx, deps),
-    "macro-duplicate": (args: string, ctx: CommandContext) => handleMacroDuplicate(args, ctx, deps),
   };
 }

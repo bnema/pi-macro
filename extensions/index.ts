@@ -3,14 +3,7 @@ import { createCommandHandlers, type CommandContext } from "../src/commands.js";
 import { openMacroPicker } from "../src/picker.js";
 
 const DESCRIPTIONS: Record<string, string> = {
-  macro: "Open macro picker or send a named macro.",
-  "macro-list": "List macros, optionally filtered by query.",
-  "macro-new": "Create a new macro.",
-  "macro-edit": "Edit an existing macro.",
-  "macro-delete": "Delete an existing macro.",
-  "macro-show": "Show a macro and resolved preview.",
-  "macro-find": "Open the macro picker filtered by query.",
-  "macro-duplicate": "Duplicate a macro.",
+  macro: "Open macro picker, send a named macro, or manage macros with subcommands.",
 };
 
 export default function registerPiMacro(pi: ExtensionAPI): void {

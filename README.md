@@ -21,16 +21,19 @@ pi install git:github.com/bnema/pi-macro
 ```text
 /macro
 /macro <name> [input...]
-/macro-list [query]
-/macro-new [name]
-/macro-edit <name>
-/macro-delete <name>
-/macro-show <name> [input...]
-/macro-find [query]
-/macro-duplicate <source> [target]
+/macro list [query]
+/macro new [name]
+/macro edit <name>
+/macro delete <name>
+/macro show <name> [input...]
+/macro find [query]
+/macro duplicate <source> [target]
+/macro send <name> [input...]
 ```
 
 If `/macro <name>` cannot find a macro, interactive modes offer to create it. Non-interactive modes fail with `Macro not found`.
+
+Reserved subcommand names (`list`, `new`, `edit`, `delete`, `show`, `find`, `duplicate`, `send`) cannot be invoked directly. To send a macro with one of these names, use `/macro send <name> [input...]`.
 
 ## Picker and modes
 
@@ -50,7 +53,7 @@ Override the path with:
 PI_MACRO_FILE=/custom/path/macros.json
 ```
 
-Directory and file permissions are private where supported (`0700` directory, `0600` file). Writes are atomic and conflict-aware.
+Directory and file permissions are private where supported (`0700` directory, `0600` file). Writes are atomic and conflict-aware. Older saved `description` fields are ignored and removed on the next write.
 
 Variables use double braces with no whitespace:
 

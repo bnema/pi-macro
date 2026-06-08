@@ -3,19 +3,17 @@ import { renderMacroRow, visibleLength } from "../src/renderer.js";
 
 const macro = {
   name: "hello",
-  description: "brother description text",
   body: "This is a long macro body that should appear on one line and be truncated with an ellipsis when needed.\nSecond line is collapsed.",
   createdAt: "a",
   updatedAt: "a",
 };
 
 describe("renderMacroRow", () => {
-  it("renders name, description, and body as responsive percentage-based columns", () => {
+  it("renders name and body as responsive columns", () => {
     const row = renderMacroRow(macro, false, 80);
 
     expect(visibleLength(row)).toBe(80);
     expect(row).toContain("hello");
-    expect(row).toContain("brother");
     expect(row).toContain("This is a long macro body");
   });
 

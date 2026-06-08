@@ -87,7 +87,7 @@ export class MacroPickerState {
 
   private recompute(): void {
     const q = this.query.trim().toLowerCase();
-    this.visibleMacros = q ? this.macros.filter((m) => m.name.toLowerCase().includes(q) || (m.description ?? "").toLowerCase().includes(q) || m.body.toLowerCase().includes(q)) : [...this.macros];
+    this.visibleMacros = q ? this.macros.filter((m) => m.name.toLowerCase().includes(q) || m.body.toLowerCase().includes(q)) : [...this.macros];
     this.selectedIndex = clamp(this.selectedIndex, 0, Math.max(0, this.visibleMacros.length - 1));
     this.scrollOffset = clamp(this.scrollOffset, 0, Math.max(0, this.visibleMacros.length - 1));
     this.ensureVisible();
@@ -120,9 +120,9 @@ export async function openMacroPicker(ctx: CommandContext, deps: MacroCommandDep
 
 type PickerMode = "list" | "form" | "confirmDelete" | "preview";
 type FormMode = "create" | "edit" | "duplicate";
-type FormField = "name" | "description" | "body";
+type FormField = "name" | "body";
 interface PickerForm { mode: FormMode; sourceName?: string; fields: Record<FormField, string>; focus: FormField; cursors: Record<FormField, number>; error?: string }
-const formFields: FormField[] = ["name", "description", "body"];
+const formFields: FormField[] = ["name", "body"];
 
 class MacroPickerComponent {
   onChange?: () => Promise<void>;
@@ -224,14 +224,14 @@ class MacroPickerComponent {
   private async sendSelected(): Promise<void> {
     const macro = this.selectedOrThrow();
     await this.state.refreshPreview(this.ctx, this.input);
-    await handleMacro(`${macro.name}${this.input ? ` ${this.input}` : ""}`, this.ctx, this.deps);
+    await handleMacro(`send ${macro.name}${this.input ? ` ${this.input}` : ""}`, this.ctx, this.deps);
     this.done();
   }
-  private openCreateForm(): void { const seed = this.state.visibleMacros.length === 0 && isValidMacroName(this.state.query) ? this.state.query : ""; this.openForm("create", { name: seed, description: "", body: "" }); }
-  private openEditForm(): void { const m = this.selectedOrThrow(); this.openForm("edit", { name: m.name, description: m.description ?? "", body: m.body }, m.name); }
-  private openDuplicateForm(): void { const m = this.selectedOrThrow(); this.openForm("duplicate", { name: `${m.name}-copy`, description: m.description ?? "", body: m.body }, m.name); }
+  private openCreateForm(): void { const seed = this.state.visibleMacros.length === 0 && isValidMacroName(this.state.query) ? this.state.query : ""; this.openForm("create", { name: seed, body: "" }); }
+  private openEditForm(): void { const m = this.selectedOrThrow(); this.openForm("edit", { name: m.name, body: m.body }, m.name); }
+  private openDuplicateForm(): void { const m = this.selectedOrThrow(); this.openForm("duplicate", { name: `${m.name}-copy`, body: m.body }, m.name); }
   private openDeleteConfirm(): void { this.selectedOrThrow(); this.mode = "confirmDelete"; this.message = undefined; }
-  private openForm(mode: FormMode, fields: Record<FormField, string>, sourceName?: string): void { this.mode = "form"; this.message = undefined; this.form = { mode, sourceName, fields, focus: "name", cursors: { name: fields.name.length, description: fields.description.length, body: fields.body.length } }; }
+  private openForm(mode: FormMode, fields: Record<FormField, string>, sourceName?: string): void { this.mode = "form"; this.message = undefined; this.form = { mode, sourceName, fields, focus: "name", cursors: { name: fields.name.length, body: fields.body.length } }; }
   private handleFormInput(data: string): void {
     const form = this.form!; const field = form.focus; const value = form.fields[field]; const cursor = form.cursors[field]; form.error = undefined;
     if (this.pendingMutation) return;
@@ -270,11 +270,11 @@ class MacroPickerComponent {
     if (!name) { form.error = "Name is required."; return; }
     if (!isValidMacroName(name)) { form.error = "Invalid macro name."; return; }
     if (!body.trim()) { form.error = "Body is required."; return; }
-    const description = form.fields.description.trim() || undefined; const store = this.deps.store ?? new MacroStore(); let saved: Macro;
+    const store = this.deps.store ?? new MacroStore(); let saved: Macro;
     this.pendingMutation = true;
     try {
-      if (form.mode === "create" || form.mode === "duplicate") saved = await store.createMacro({ name, description, body });
-      else saved = await store.updateMacro(form.sourceName!, { name, description, body });
+      if (form.mode === "create" || form.mode === "duplicate") saved = await store.createMacro({ name, body });
+      else saved = await store.updateMacro(form.sourceName!, { name, body });
       this.state.setMacros(await store.listMacros());
       if (!this.state.visibleMacros.some((m) => m.name === saved.name)) this.state.clearQuery();
       this.state.selectByName(saved.name);
