@@ -4,7 +4,7 @@ Create and reuse prompt macros inside Pi.
 
 ## What it does
 
-- Stores named prompt templates locally.
+- Stores named, tagged prompt templates locally.
 - Expands variables such as `{{input}}` and `{{args}}`.
 - Shows previews before sending when needed.
 - Sends the resolved macro as a normal user message.
@@ -37,7 +37,7 @@ Reserved subcommand names (`list`, `new`, `edit`, `delete`, `show`, `find`, `dup
 
 ## Picker and modes
 
-Interactive Pi sessions get a searchable picker with preview, create, edit, delete, duplicate, and send actions. Print, JSON, and no-UI modes avoid pickers and fail commands that need missing interactive input.
+Interactive Pi sessions get a searchable picker with preview, create, edit, delete, duplicate, and send actions. Macro creation and editing collect an optional tag. Picker and list queries search names, tags, and bodies; use `tag:<tag>` to filter specifically by tag. Print, JSON, and no-UI modes avoid pickers and fail commands that need missing interactive input.
 
 ## Storage and variables
 
@@ -53,7 +53,7 @@ Override the path with:
 PI_MACRO_FILE=/custom/path/macros.json
 ```
 
-Directory and file permissions are private where supported (`0700` directory, `0600` file). Writes are atomic and conflict-aware. Older saved `description` fields are ignored and removed on the next write.
+Directory and file permissions are private where supported (`0700` directory, `0600` file). Writes are atomic and conflict-aware. Older saved `description` fields are ignored and removed on the next write. Older macros without a tag are loaded with an empty tag and backfilled on the next write.
 
 Variables use double braces with no whitespace:
 
