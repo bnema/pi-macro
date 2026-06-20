@@ -18,7 +18,7 @@ async function seededStore(): Promise<{ store: MacroStore; file: string }> {
   tempDirs.push(dir);
   const file = path.join(dir, "macros.json");
   const store = new MacroStore(file);
-  await store.createMacro({ name: "review", body: "Review {{input}}" });
+  await store.createMacro({ name: "review", tag: "", body: "Review {{input}}" });
   return { store, file };
 }
 

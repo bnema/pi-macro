@@ -3,6 +3,7 @@ import { renderMacroRow, visibleLength } from "../src/renderer.js";
 
 const macro = {
   name: "hello",
+  tag: "quality",
   body: "This is a long macro body that should appear on one line and be truncated with an ellipsis when needed.\nSecond line is collapsed.",
   createdAt: "a",
   updatedAt: "a",
@@ -14,7 +15,14 @@ describe("renderMacroRow", () => {
 
     expect(visibleLength(row)).toBe(80);
     expect(row).toContain("hello");
+    expect(row).toContain("[quality]");
     expect(row).toContain("This is a long macro body");
+  });
+
+  it("omits empty tag brackets", () => {
+    const row = renderMacroRow({ ...macro, tag: "" }, false, 80);
+
+    expect(row).not.toContain("[]");
   });
 
   it("uses more available width for the body column on wide rows", () => {

@@ -40,19 +40,24 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function rowColumnWidths(width: number): { name: number; body: number } {
+function rowColumnWidths(width: number): { name: number; tag: number; body: number } {
   const prefixWidth = 2;
-  const gap = 1;
-  const columns = Math.max(0, width - prefixWidth - gap);
-  let name = clampNumber(Math.floor(columns * 0.3), 8, 24);
-  let body = columns - name;
+  const gaps = 2;
+  const columns = Math.max(0, width - prefixWidth - gaps);
+  let name = clampNumber(Math.floor(columns * 0.25), 8, 20);
+  let tag = clampNumber(Math.floor(columns * 0.2), 8, 18);
+  let body = columns - name - tag;
   if (body < 8) {
+    const need = 8 - body;
+    const fromTag = Math.min(need, Math.max(0, tag - 6));
+    tag -= fromTag;
+    body += fromTag;
     const fromName = Math.min(8 - body, Math.max(0, name - 6));
     name -= fromName;
     body += fromName;
   }
   if (body < 0) body = 0;
-  return { name, body };
+  return { name, tag, body };
 }
 
 function oneLineBody(body: string): string {
@@ -60,12 +65,14 @@ function oneLineBody(body: string): string {
 }
 
 export function renderMacroRow(macro: Macro, selected: boolean, width: number, theme?: PickerTheme): string {
-  const { name: nameWidth, body: bodyWidth } = rowColumnWidths(width);
+  const { name: nameWidth, tag: tagWidth, body: bodyWidth } = rowColumnWidths(width);
   const prefix = selected ? "› " : "  ";
   const name = truncateAnsi(macro.name, nameWidth);
+  const tag = truncateAnsi(macro.tag ? `[${macro.tag}]` : "", tagWidth);
   const body = truncateAnsi(oneLineBody(macro.body), bodyWidth);
   const row = [
     prefix + padAnsi(selected ? style(theme, "accent", name) : name, nameWidth),
+    padAnsi(tag ? style(theme, "muted", tag) : "", tagWidth),
     body,
   ].join(" ");
   const padded = padAnsi(truncateAnsi(row, width), width);

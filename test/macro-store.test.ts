@@ -42,8 +42,8 @@ describe("MacroStore", () => {
     expect(await loadMacroFile(file)).toEqual({ version: 1, macros: [] });
     const store = new MacroStore(file);
     expect(await store.listMacros()).toEqual([]);
-    await store.createMacro({ name: "review", body: "Review this" });
-    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ version: 1, macros: [{ name: "review" }] });
+    await store.createMacro({ name: "review", body: "Review this", tag: "quality" });
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ version: 1, macros: [{ name: "review", tag: "quality" }] });
   });
 
   it("malformed JSON returns clear error and does not overwrite", async () => {
@@ -56,67 +56,70 @@ describe("MacroStore", () => {
 
   it("rejects duplicate names case-insensitively", async () => {
     const store = new MacroStore(await tempFile());
-    await store.createMacro({ name: "Review", body: "one" });
-    await expect(store.createMacro({ name: "review", body: "two" })).rejects.toMatchObject({ code: "duplicate-name" });
+    await store.createMacro({ name: "Review", tag: "", body: "one" });
+    await expect(store.createMacro({ name: "review", tag: "", body: "two" })).rejects.toMatchObject({ code: "duplicate-name" });
   });
 
   it("sorts list case-insensitively while preserving display case", async () => {
     const store = new MacroStore(await tempFile());
-    await store.createMacro({ name: "beta", body: "b" });
-    await store.createMacro({ name: "Alpha", body: "a" });
+    await store.createMacro({ name: "beta", tag: "", body: "b" });
+    await store.createMacro({ name: "Alpha", tag: "", body: "a" });
     expect((await store.listMacros()).map((m) => m.name)).toEqual(["Alpha", "beta"]);
     expect((await store.getMacro("alpha"))?.name).toBe("Alpha");
   });
 
-  it("update preserves createdAt, updates updatedAt, and preserves unknown fields", async () => {
+  it("update preserves createdAt, updates updatedAt, tag, and unknown fields", async () => {
     const file = await tempFile();
-    await writeFile(file, JSON.stringify({ version: 1, macros: [{ name: "review", body: "old", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", note: "keep" }] }), "utf8");
+    await writeFile(file, JSON.stringify({ version: 1, macros: [{ name: "review", tag: "quality", body: "old", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", note: "keep" }] }), "utf8");
     const store = new MacroStore(file);
     await store.load();
     const updated = await store.updateMacro("REVIEW", { body: "new" });
     expect(updated.createdAt).toBe("2026-01-01T00:00:00.000Z");
     expect(updated.updatedAt).not.toBe(updated.createdAt);
+    expect(updated.tag).toBe("quality");
     expect(updated.note).toBe("keep");
     expect(updated.body).toBe("new");
   });
 
   it("delete removes only requested macro", async () => {
     const store = new MacroStore(await tempFile());
-    await store.createMacro({ name: "one", body: "1" });
-    await store.createMacro({ name: "two", body: "2" });
+    await store.createMacro({ name: "one", tag: "", body: "1" });
+    await store.createMacro({ name: "two", tag: "", body: "2" });
     await store.deleteMacro("ONE");
     expect((await store.listMacros()).map((m) => m.name)).toEqual(["two"]);
   });
 
-  it("duplicate copies body with new timestamps", async () => {
+  it("duplicate copies body and tag with new timestamps", async () => {
     const store = new MacroStore(await tempFile());
-    const source = await store.createMacro({ name: "source", body: "body" });
+    const source = await store.createMacro({ name: "source", body: "body", tag: "quality" });
     const copy = await store.duplicateMacro("SOURCE", "copy");
-    expect(copy).toMatchObject({ name: "copy", body: "body" });
+    expect(copy).toMatchObject({ name: "copy", body: "body", tag: "quality" });
     expect(copy.createdAt).not.toBe(source.createdAt);
     expect(copy.updatedAt).not.toBe(source.updatedAt);
   });
 
-  it("migrates old description fields out of loaded macros", async () => {
+  it("migrates old description fields out of loaded macros and backfills missing tags", async () => {
     const file = await tempFile();
     await writeFile(file, JSON.stringify({ version: 1, macros: [{ name: "review", description: "old", body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] }), "utf8");
     const store = new MacroStore(file);
-    expect(await store.getMacro("review")).toEqual({ name: "review", body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" });
+    expect(await store.getMacro("review")).toEqual({ name: "review", tag: "", body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" });
     await store.updateMacro("review", { body: "new" });
-    expect(await readFile(file, "utf8")).not.toContain("description");
+    const saved = await readFile(file, "utf8");
+    expect(saved).not.toContain("description");
+    expect(saved).toContain('"tag": ""');
   });
 
-  it("saveMacroFile strips legacy description fields before writing", async () => {
+  it("saveMacroFile strips legacy description fields and backfills missing tags before writing", async () => {
     const file = await tempFile();
-    await saveMacroFile({ version: 1, macros: [{ name: "review", description: "old", body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] } as never, file);
+    await saveMacroFile({ version: 1, macros: [{ name: "review", description: "old", tag: undefined, body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] } as never, file);
     expect(await readFile(file, "utf8")).not.toContain("description");
-    expect(await loadMacroFile(file)).toEqual({ version: 1, macros: [{ name: "review", body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] });
+    expect(await loadMacroFile(file)).toEqual({ version: 1, macros: [{ name: "review", tag: "", body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] });
   });
 
   it("detects concurrent save conflict", async () => {
     const file = await tempFile();
     const a = new MacroStore(file);
-    await a.createMacro({ name: "same", body: "one" });
+    await a.createMacro({ name: "same", tag: "", body: "one" });
     const b = new MacroStore(file);
     await b.load();
     await a.updateMacro("same", { body: "two" });
@@ -126,8 +129,8 @@ describe("MacroStore", () => {
   it("does not lose updates when two store instances modify different macros", async () => {
     const file = await tempFile();
     const seed = new MacroStore(file);
-    await seed.createMacro({ name: "one", body: "1" });
-    await seed.createMacro({ name: "two", body: "2" });
+    await seed.createMacro({ name: "one", tag: "", body: "1" });
+    await seed.createMacro({ name: "two", tag: "", body: "2" });
     const a = new MacroStore(file);
     const b = new MacroStore(file);
     await a.load();
@@ -146,11 +149,26 @@ describe("MacroStore", () => {
     await a.load();
     await b.load();
     await Promise.all([
-      a.createMacro({ name: "one", body: "1" }),
-      b.createMacro({ name: "two", body: "2" }),
+      a.createMacro({ name: "one", tag: "", body: "1" }),
+      b.createMacro({ name: "two", tag: "", body: "2" }),
     ]);
     const names = (await new MacroStore(file).listMacros()).map((m) => m.name);
     expect(names).toEqual(["one", "two"]);
+  });
+
+  it("rejects non-string tags in saved data", async () => {
+    const file = await tempFile();
+    await writeFile(file, JSON.stringify({ version: 1, macros: [{ name: "review", tag: 123, body: "body", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] }), "utf8");
+
+    await expect(new MacroStore(file).load()).rejects.toMatchObject({ code: "invalid-shape" });
+  });
+
+  it("rejects non-string tags on create and update", async () => {
+    const store = new MacroStore(await tempFile());
+
+    await expect(store.createMacro({ name: "bad", tag: 123, body: "body" } as never)).rejects.toMatchObject({ code: "invalid-shape" });
+    await store.createMacro({ name: "review", tag: "quality", body: "body" });
+    await expect(store.updateMacro("review", { tag: 123 } as never)).rejects.toMatchObject({ code: "invalid-shape" });
   });
 
   it("saveMacroFile refuses to bypass malformed store safeguards", async () => {
@@ -163,7 +181,7 @@ describe("MacroStore", () => {
   it("saveMacroFile refuses to overwrite an existing different store without an expected snapshot", async () => {
     const file = await tempFile();
     const store = new MacroStore(file);
-    await store.createMacro({ name: "existing", body: "keep" });
+    await store.createMacro({ name: "existing", tag: "", body: "keep" });
     await expect(saveMacroFile({ version: 1, macros: [] }, file)).rejects.toMatchObject({ code: "concurrent-conflict" });
     expect((await new MacroStore(file).listMacros()).map((macro) => macro.name)).toEqual(["existing"]);
   });

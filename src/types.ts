@@ -1,5 +1,6 @@
 export interface Macro {
   name: string;
+  tag: string;
   body: string;
   createdAt: string;
   updatedAt: string;

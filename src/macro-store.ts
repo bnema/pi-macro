@@ -9,10 +9,11 @@ export const MACRO_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 
 export interface CreateMacroInput {
   name: string;
+  tag: string;
   body: string;
 }
 
-export type UpdateMacroPatch = Partial<Pick<Macro, "name" | "body">>;
+export type UpdateMacroPatch = Partial<Pick<Macro, "name" | "tag" | "body">>;
 
 interface Snapshot {
   path: string;
@@ -98,13 +99,16 @@ function validateMacroFile(value: unknown, source: string): MacroFile {
     if (typeof macro.name !== "string" || typeof macro.body !== "string" || typeof macro.createdAt !== "string" || typeof macro.updatedAt !== "string") {
       throw new MacroStoreError(`Invalid macro entry at ${source}: missing required string fields.`, "invalid-shape");
     }
+    if (macro.tag !== undefined && typeof macro.tag !== "string") {
+      throw new MacroStoreError(`Invalid macro entry at ${source}: tag must be a string.`, "invalid-shape");
+    }
     assertValidName(macro.name);
     if (macro.body.length === 0) throw new MacroStoreError(`Macro ${macro.name} has an empty body.`, "empty-body");
     const lower = normalizeName(macro.name);
     if (seen.has(lower)) throw new MacroStoreError(`Duplicate macro name in ${source}: ${macro.name}.`, "duplicate-name");
     seen.add(lower);
-    const { description: _description, ...rest } = macro;
-    macros.push(rest as unknown as Macro);
+    const { description: _description, tag, ...rest } = macro;
+    macros.push({ ...rest, tag: typeof tag === "string" ? tag : "" } as unknown as Macro);
   }
   const { macros: _macros, ...rest } = candidate;
   return { ...rest, version: MACRO_FILE_VERSION, macros } as MacroFile;
@@ -238,6 +242,11 @@ function ensureUnique(file: MacroFile, name: string, except?: string): void {
   }
 }
 
+function normalizeTag(tag: unknown): string {
+  if (typeof tag !== "string") throw new MacroStoreError("Macro tag must be a string.", "invalid-shape");
+  return tag.trim();
+}
+
 function applyMutation(base: MacroFile, mutation: Mutation, at = nowIso()): MacroFile {
   const file = cloneFile(base);
   switch (mutation.type) {
@@ -245,7 +254,7 @@ function applyMutation(base: MacroFile, mutation: Mutation, at = nowIso()): Macr
       assertValidName(mutation.input.name);
       if (!mutation.input.body) throw new MacroStoreError("Macro body cannot be empty.", "empty-body");
       ensureUnique(file, mutation.input.name);
-      file.macros.push({ ...mutation.input, createdAt: at, updatedAt: at });
+      file.macros.push({ ...mutation.input, tag: normalizeTag(mutation.input.tag), createdAt: at, updatedAt: at });
       break;
     }
     case "update": {
@@ -257,7 +266,8 @@ function applyMutation(base: MacroFile, mutation: Mutation, at = nowIso()): Macr
       ensureUnique(file, nextName, current.name);
       const nextBody = mutation.patch.body ?? current.body;
       if (!nextBody) throw new MacroStoreError("Macro body cannot be empty.", "empty-body");
-      file.macros[index] = { ...current, ...mutation.patch, name: nextName, body: nextBody, createdAt: current.createdAt, updatedAt: at };
+      const nextTag = mutation.patch.tag === undefined ? current.tag : normalizeTag(mutation.patch.tag);
+      file.macros[index] = { ...current, ...mutation.patch, name: nextName, tag: nextTag, body: nextBody, createdAt: current.createdAt, updatedAt: at };
       break;
     }
     case "delete": {

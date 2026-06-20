@@ -33,7 +33,7 @@ describe("command parser", () => {
 
   it("uses send to run a macro whose name is a reserved subcommand", async () => {
     const s = await store();
-    await s.createMacro({ name: "list", body: "List macro: {{input}}" });
+    await s.createMacro({ name: "list", tag: "", body: "List macro: {{input}}" });
     const send = vi.fn();
 
     await handleMacro("send list details", ctx(), { store: s, sendUserMessage: send });
@@ -45,7 +45,7 @@ describe("command parser", () => {
 describe("/macro", () => {
   it("sends a known macro as a plain expanded body", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Review: {{input}}" });
+    await s.createMacro({ name: "review", tag: "", body: "Review: {{input}}" });
     const send = vi.fn();
 
     await handleMacro("review this code", ctx(), { store: s, sendUserMessage: send });
@@ -55,7 +55,7 @@ describe("/macro", () => {
 
   it("preserves quotes in input binding", async () => {
     const s = await store();
-    await s.createMacro({ name: "challenge", body: "Challenge {{args}}" });
+    await s.createMacro({ name: "challenge", tag: "", body: "Challenge {{args}}" });
     const send = vi.fn();
 
     await handleMacro("challenge \"hello world\"", ctx(), { store: s, sendUserMessage: send });
@@ -70,7 +70,7 @@ describe("/macro", () => {
 
   it("uses followUp delivery while streaming", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Review" });
+    await s.createMacro({ name: "review", tag: "", body: "Review" });
     const send = vi.fn();
 
     await handleMacro("review", ctx({ isIdle: () => false }), { store: s, sendUserMessage: send });
@@ -80,7 +80,7 @@ describe("/macro", () => {
 
   it("confirms interactive macros with the final resolved message", async () => {
     const s = await store();
-    await s.createMacro({ name: "ask", body: "Answer: {{ask:Question?}}" });
+    await s.createMacro({ name: "ask", tag: "", body: "Answer: {{ask:Question?}}" });
     const c = ctx();
     vi.mocked(c.ui!.input!).mockResolvedValueOnce("resolved value");
     const send = vi.fn();
@@ -101,60 +101,98 @@ describe("/macro", () => {
 });
 
 describe("management commands", () => {
-  it("lists and filters without opening picker", async () => {
+  it("lists with tags and filters by tag without opening picker", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Review critique" });
-    await s.createMacro({ name: "plan", body: "Plan" });
+    await s.createMacro({ name: "review", body: "Review critique", tag: "quality" });
+    await s.createMacro({ name: "plan", body: "Plan", tag: "planning" });
     const c = ctx();
     const openPicker = vi.fn();
 
-    await handleMacro("list crit", c, { store: s, sendUserMessage: vi.fn(), openPicker });
+    await handleMacro("list tag:quality", c, { store: s, sendUserMessage: vi.fn(), openPicker });
 
-    expect(c.ui?.notify).toHaveBeenCalledWith("review", "info");
+    expect(c.ui?.notify).toHaveBeenCalledWith("review [quality]", "info");
     expect(openPicker).not.toHaveBeenCalled();
   });
 
   it("keeps list output available without UI even when Pi provides a no-op ui object", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Review" });
+    await s.createMacro({ name: "review", body: "Review", tag: "quality" });
     const c = ctx({ hasUI: false, mode: "json", ui: { notify: vi.fn() } });
 
     await handleMacro("list", c, { store: s, sendUserMessage: vi.fn() });
 
     expect(c.ui?.notify).not.toHaveBeenCalled();
-    expect(JSON.parse((c as CommandContext & { output?: string }).output ?? "[]")).toMatchObject([{ name: "review" }]);
+    expect(JSON.parse((c as CommandContext & { output?: string }).output ?? "[]")).toMatchObject([{ name: "review", tag: "quality" }]);
   });
 
-  it("creates a macro with UI-provided values", async () => {
+  it("creates a macro with UI-provided body and tag values", async () => {
     const s = await store();
     const c = ctx();
+    vi.mocked(c.ui!.input!).mockResolvedValueOnce("quality");
     vi.mocked(c.ui!.editor!).mockResolvedValueOnce("Body");
 
     await handleMacro("new review", c, { store: s, sendUserMessage: vi.fn() });
 
-    expect(c.ui?.input).not.toHaveBeenCalled();
-    expect(await s.getMacro("review")).toEqual(expect.objectContaining({ name: "review", body: "Body" }));
+    expect(c.ui?.input).toHaveBeenCalledOnce();
+    expect(c.ui?.input).toHaveBeenCalledWith("Macro tag", "");
+    expect(await s.getMacro("review")).toEqual(expect.objectContaining({ name: "review", tag: "quality", body: "Body" }));
     expect(await s.getMacro("review")).not.toHaveProperty("description");
   });
 
-  it("edits a macro", async () => {
+  it("defaults tag to empty when tag input is unavailable during create", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Old" });
+    const editor = vi.fn(async () => "Body");
+    const c = ctx({ ui: { editor, notify: vi.fn() } });
+
+    await handleMacro("new review", c, { store: s, sendUserMessage: vi.fn() });
+
+    expect(editor).toHaveBeenCalledWith("Macro body", "");
+    expect(await s.getMacro("review")).toEqual(expect.objectContaining({ name: "review", tag: "", body: "Body" }));
+  });
+
+  it("cancels create when tag input is cancelled before opening the editor", async () => {
+    const s = await store();
     const c = ctx();
-    vi.mocked(c.ui!.input!).mockResolvedValueOnce("review2");
+    vi.mocked(c.ui!.input!).mockResolvedValueOnce(undefined);
+
+    await expect(handleMacro("new review", c, { store: s, sendUserMessage: vi.fn() })).rejects.toThrow("Cancelled.");
+
+    expect(c.ui?.editor).not.toHaveBeenCalled();
+    expect(await s.getMacro("review")).toBeUndefined();
+  });
+
+  it("edits a macro including its tag", async () => {
+    const s = await store();
+    await s.createMacro({ name: "review", body: "Old", tag: "quality" });
+    const c = ctx();
+    vi.mocked(c.ui!.input!).mockResolvedValueOnce("review2").mockResolvedValueOnce("planning");
     vi.mocked(c.ui!.editor!).mockResolvedValueOnce("New");
 
     await handleMacro("edit review", c, { store: s, sendUserMessage: vi.fn() });
 
-    expect(c.ui?.input).toHaveBeenCalledOnce();
-    expect(c.ui?.input).toHaveBeenCalledWith("Macro name", "review");
-    expect(await s.getMacro("review2")).toEqual(expect.objectContaining({ name: "review2", body: "New" }));
+    expect(c.ui?.input).toHaveBeenCalledTimes(2);
+    expect(c.ui?.input).toHaveBeenNthCalledWith(1, "Macro name", "review");
+    expect(c.ui?.input).toHaveBeenNthCalledWith(2, "Macro tag", "quality");
+    expect(await s.getMacro("review2")).toEqual(expect.objectContaining({ name: "review2", tag: "planning", body: "New" }));
     expect(await s.getMacro("review2")).not.toHaveProperty("description");
+  });
+
+  it("cancels edit when tag input is cancelled without mutating the macro", async () => {
+    const s = await store();
+    await s.createMacro({ name: "review", body: "Old", tag: "quality" });
+    const c = ctx();
+    vi.mocked(c.ui!.input!).mockResolvedValueOnce("review2").mockResolvedValueOnce(undefined);
+
+    await expect(handleMacro("edit review", c, { store: s, sendUserMessage: vi.fn() })).rejects.toThrow("Cancelled.");
+
+    expect(c.ui?.editor).not.toHaveBeenCalled();
+    expect(await s.getMacro("review")).toEqual(expect.objectContaining({ name: "review", tag: "quality", body: "Old" }));
+    expect(await s.getMacro("review2")).toBeUndefined();
   });
 
   it("deletes and shows a macro", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Body" });
+    await s.createMacro({ name: "review", tag: "", body: "Body" });
     const c = ctx();
     await handleMacro("show review", c, { store: s, sendUserMessage: vi.fn() });
     expect(c.ui?.notify).toHaveBeenCalledWith(expect.stringContaining("Preview:"), "info");
@@ -165,7 +203,7 @@ describe("management commands", () => {
 
   it("keeps show output available without UI", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Body" });
+    await s.createMacro({ name: "review", tag: "", body: "Body" });
     const c = ctx({ hasUI: false, mode: "print", ui: { notify: vi.fn() } });
 
     await handleMacro("show review", c, { store: s, sendUserMessage: vi.fn() });
@@ -177,18 +215,18 @@ describe("management commands", () => {
 
   it("refuses delete without interactive confirmation", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Body" });
+    await s.createMacro({ name: "review", tag: "", body: "Body" });
 
     await expect(handleMacro("delete review", ctx({ hasUI: false, mode: "print", ui: undefined }), { store: s, sendUserMessage: vi.fn() })).rejects.toThrow("requires interactive confirmation");
     expect(await s.getMacro("review")).toBeDefined();
   });
 
-  it("duplicates a macro", async () => {
+  it("duplicates a macro with its tag", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Body" });
+    await s.createMacro({ name: "review", body: "Body", tag: "quality" });
 
     await handleMacro("duplicate review copy", ctx(), { store: s, sendUserMessage: vi.fn() });
 
-    expect(await s.getMacro("copy")).toMatchObject({ name: "copy", body: "Body" });
+    expect(await s.getMacro("copy")).toMatchObject({ name: "copy", body: "Body", tag: "quality" });
   });
 });

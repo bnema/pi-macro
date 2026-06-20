@@ -20,16 +20,16 @@ afterEach(async () => {
 });
 
 describe("MacroPickerState", () => {
-  it("filters visible rows and clamps selection after query changes", () => {
+  it("filters visible rows by name, body, or tag and clamps selection after query changes", () => {
     const state = new MacroPickerState();
     state.setMacros([
-      { name: "review", body: "Review", createdAt: "a", updatedAt: "a" },
-      { name: "plan", body: "Spec plan", createdAt: "a", updatedAt: "a" },
+      { name: "review", tag: "quality", body: "Review", createdAt: "a", updatedAt: "a" },
+      { name: "plan", tag: "planning", body: "Spec plan", createdAt: "a", updatedAt: "a" },
     ]);
     state.move(10);
     expect(state.selectedIndex).toBe(1);
 
-    state.setQuery("rev");
+    state.setQuery("tag:quality");
 
     expect(state.visibleMacros.map((m) => m.name)).toEqual(["review"]);
     expect(state.selectedIndex).toBe(0);
@@ -37,7 +37,7 @@ describe("MacroPickerState", () => {
 
   it("previews static variables and interactive placeholders", async () => {
     const state = new MacroPickerState();
-    state.setMacros([{ name: "ask", body: "Project {{project}} / {{ask:Need?}}", createdAt: "a", updatedAt: "a" }]);
+    state.setMacros([{ name: "ask", tag: "interactive", body: "Project {{project}} / {{ask:Need?}}", createdAt: "a", updatedAt: "a" }]);
 
     await state.refreshPreview({ cwd: "/tmp/example" }, "");
 
@@ -72,7 +72,7 @@ describe("openMacroPicker", () => {
 
   it("renders a full-width frame with consistently styled outer borders", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Body" });
+    await s.createMacro({ name: "review", body: "Body", tag: "quality" });
     let component: TestComponent | undefined;
     const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
@@ -100,6 +100,7 @@ describe("openMacroPicker", () => {
     const rendered = component!.render(100).join("\n");
 
     expect(rendered).toContain("[muted:name:]");
+    expect(rendered).toContain("[muted:tag:]");
     expect(rendered).toContain("[muted:body:]");
     expect(rendered).toContain("[accent:▌ ]");
   });
@@ -128,7 +129,7 @@ describe("openMacroPicker", () => {
 
   it("accepts pasted text chunks in the list query", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Review body" });
+    await s.createMacro({ name: "review", tag: "", body: "Review body" });
     let component: TestComponent | undefined;
     const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
@@ -140,7 +141,7 @@ describe("openMacroPicker", () => {
 
   it("accepts split bracketed paste chunks in the list query", async () => {
     const s = await store();
-    await s.createMacro({ name: "review", body: "Review body" });
+    await s.createMacro({ name: "review", tag: "", body: "Review body" });
     let component: TestComponent | undefined;
     const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
@@ -159,6 +160,7 @@ describe("openMacroPicker", () => {
 
     component!.handleInput("n");
     component!.handleInput("pasted-name");
+    component!.handleInput("\t");
     component!.handleInput("\t\u001b[20");
     component!.handleInput("0~line 1\r");
     component!.handleInput("\nline 2\u001b[201~\u0013");
@@ -168,7 +170,7 @@ describe("openMacroPicker", () => {
 
   it("wraps ANSI-containing form values without splitting escape sequences", async () => {
     const s = await store();
-    await s.createMacro({ name: "styled", body: `${"x".repeat(30)}\x1b[31mred-tail\x1b[0m` });
+    await s.createMacro({ name: "styled", tag: "", body: `${"x".repeat(30)}\x1b[31mred-tail\x1b[0m` });
     let component: TestComponent | undefined;
     const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
@@ -194,7 +196,7 @@ describe("openMacroPicker", () => {
     expect(rendered).toContain("tail");
   });
 
-  it("inline create from empty query does not use Pi dialogs", async () => {
+  it("inline create stores tag and does not use Pi dialogs", async () => {
     const s = await store();
     let component: TestComponent | undefined;
     const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }), input: vi.fn(), editor: vi.fn(), confirm: vi.fn() };
@@ -202,28 +204,31 @@ describe("openMacroPicker", () => {
 
     component!.handleInput("n");
     component!.handleInput("\t");
+    for (const ch of "quality") component!.handleInput(ch);
+    component!.handleInput("\t");
     for (const ch of "Body") component!.handleInput(ch);
     component!.handleInput("\r");
 
-    await vi.waitFor(async () => expect(await s.getMacro("newmacro")).toBeDefined());
+    await vi.waitFor(async () => expect(await s.getMacro("newmacro")).toMatchObject({ tag: "quality" }));
+    expect(component!.render(80).join("\n")).toContain("[quality]");
     expect(ui.input).not.toHaveBeenCalled(); expect(ui.editor).not.toHaveBeenCalled(); expect(ui.confirm).not.toHaveBeenCalled();
   });
 
   it("edit prefill/save and cancel do not use Pi dialogs", async () => {
-    const s = await store(); await s.createMacro({ name: "review", body: "Body" });
+    const s = await store(); await s.createMacro({ name: "review", tag: "", body: "Body" });
     let component: TestComponent | undefined; const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }), input: vi.fn(), editor: vi.fn(), confirm: vi.fn() };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
     component!.handleInput("e");
     expect(component!.render(80).join("\n")).toContain("review");
     component!.handleInput("\u001b");
     expect((await s.getMacro("review"))?.body).toBe("Body");
-    component!.handleInput("e"); component!.handleInput("\u0015"); for (const ch of "review2") component!.handleInput(ch); component!.handleInput("\t"); component!.handleInput("\u0015"); for (const ch of "new") component!.handleInput(ch); component!.handleInput("\u0013");
-    await vi.waitFor(async () => expect(await s.getMacro("review2")).toBeDefined());
+    component!.handleInput("e"); component!.handleInput("\u0015"); for (const ch of "review2") component!.handleInput(ch); component!.handleInput("\t"); component!.handleInput("\u0015"); for (const ch of "quality") component!.handleInput(ch); component!.handleInput("\t"); component!.handleInput("\u0015"); for (const ch of "new") component!.handleInput(ch); component!.handleInput("\u0013");
+    await vi.waitFor(async () => expect(await s.getMacro("review2")).toMatchObject({ tag: "quality" }));
     expect(ui.input).not.toHaveBeenCalled(); expect(ui.editor).not.toHaveBeenCalled(); expect(ui.confirm).not.toHaveBeenCalled();
   });
 
   it("duplicate prefill/save does not use Pi dialogs", async () => {
-    const s = await store(); await s.createMacro({ name: "review", body: "Body" });
+    const s = await store(); await s.createMacro({ name: "review", tag: "", body: "Body" });
     let component: TestComponent | undefined; const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }), input: vi.fn(), editor: vi.fn(), confirm: vi.fn() };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
     component!.handleInput("y"); component!.handleInput("\u0013");
@@ -232,7 +237,7 @@ describe("openMacroPicker", () => {
   });
 
   it("delete inline confirm and cancel", async () => {
-    const s = await store(); await s.createMacro({ name: "review", body: "Body" });
+    const s = await store(); await s.createMacro({ name: "review", tag: "", body: "Body" });
     let component: TestComponent | undefined; const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }), confirm: vi.fn() };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
     component!.handleInput("d"); expect(component!.render(80).join("\n")).toContain("Delete macro 'review'?"); component!.handleInput("n"); expect(await s.getMacro("review")).toBeDefined();
@@ -241,7 +246,7 @@ describe("openMacroPicker", () => {
   });
 
   it("preview inline and validation errors", async () => {
-    const s = await store(); await s.createMacro({ name: "review", body: "Hello {{project}}" });
+    const s = await store(); await s.createMacro({ name: "review", tag: "", body: "Hello {{project}}" });
     let component: TestComponent | undefined; const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }), input: vi.fn(), editor: vi.fn(), confirm: vi.fn() };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
     component!.handleInput("p"); await vi.waitFor(() => expect(component!.render(80).join("\n")).toContain("Preview: review")); component!.handleInput("\u001b");
@@ -273,6 +278,7 @@ describe("openMacroPicker", () => {
     expect(requestRender).toHaveBeenCalledTimes(1);
 
     component!.handleInput("\t");
+    component!.handleInput("\t");
     for (const ch of "Body") component!.handleInput(ch);
     requestRender.mockClear();
     component!.handleInput("\u0013");
@@ -298,15 +304,15 @@ describe("openMacroPicker", () => {
   });
 
   it("saves edited duplicates with a single create path", async () => {
-    const s = await store(); await s.createMacro({ name: "review", body: "Old body" });
+    const s = await store(); await s.createMacro({ name: "review", tag: "", body: "Old body" });
     const create = vi.spyOn(s, "createMacro"); const duplicate = vi.spyOn(s, "duplicateMacro"); const update = vi.spyOn(s, "updateMacro");
     let component: TestComponent | undefined; const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
 
-    component!.handleInput("y"); component!.handleInput("\t"); component!.handleInput("\u0015"); for (const ch of "New body") component!.handleInput(ch); component!.handleInput("\u0013");
+    component!.handleInput("y"); component!.handleInput("\t"); component!.handleInput("\t"); component!.handleInput("\u0015"); for (const ch of "New body") component!.handleInput(ch); component!.handleInput("\u0013");
 
     await vi.waitFor(async () => expect(await s.getMacro("review-copy")).toMatchObject({ body: "New body" }));
-    expect(create).toHaveBeenCalledWith({ name: "review-copy", body: "New body" });
+    expect(create).toHaveBeenCalledWith({ name: "review-copy", tag: "", body: "New body" });
     expect(duplicate).not.toHaveBeenCalled(); expect(update).not.toHaveBeenCalled();
   });
 
@@ -317,14 +323,14 @@ describe("openMacroPicker", () => {
     let component: TestComponent | undefined; const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() }, { query: "fast" });
 
-    component!.handleInput("n"); component!.handleInput("\t"); for (const ch of "Body") component!.handleInput(ch); component!.handleInput("\u0013"); component!.handleInput("\u0013");
+    component!.handleInput("n"); component!.handleInput("\t"); component!.handleInput("\t"); for (const ch of "Body") component!.handleInput(ch); component!.handleInput("\u0013"); component!.handleInput("\u0013");
 
     await vi.waitFor(async () => expect(await s.getMacro("fast")).toBeDefined());
     expect(create).toHaveBeenCalledTimes(1);
   });
 
   it("ignores repeated delete confirmation while delete is pending", async () => {
-    const s = await store(); await s.createMacro({ name: "review", body: "Body" });
+    const s = await store(); await s.createMacro({ name: "review", tag: "", body: "Body" });
     const originalDelete = s.deleteMacro.bind(s);
     const del = vi.spyOn(s, "deleteMacro").mockImplementation(async (name) => { await new Promise((resolve) => setTimeout(resolve, 20)); return originalDelete(name); });
     let component: TestComponent | undefined; const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
@@ -337,7 +343,7 @@ describe("openMacroPicker", () => {
   });
 
   it("Enter sends selected macro through handleMacro and honors confirmation", async () => {
-    const s = await store(); await s.createMacro({ name: "review", body: "{{confirm:sure?}}Body {{input}}" });
+    const s = await store(); await s.createMacro({ name: "review", tag: "", body: "{{confirm:sure?}}Body {{input}}" });
     let component: TestComponent | undefined; const done = vi.fn(); const sendUserMessage = vi.fn();
     const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, done); }), confirm: vi.fn(async () => true) };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage }, { input: "now" });
@@ -349,7 +355,7 @@ describe("openMacroPicker", () => {
   });
 
   it("Enter sends selected macros whose names are reserved subcommands", async () => {
-    const s = await store(); await s.createMacro({ name: "list", body: "Reserved {{input}}" });
+    const s = await store(); await s.createMacro({ name: "list", tag: "", body: "Reserved {{input}}" });
     let component: TestComponent | undefined; const done = vi.fn(); const sendUserMessage = vi.fn();
     const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, done); }) };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage }, { input: "now" });
@@ -365,7 +371,7 @@ describe("openMacroPicker", () => {
     let component: TestComponent | undefined; const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
     await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() }, { query: "compose" });
 
-    component!.handleInput("n"); component!.handleInput("\t"); component!.handleInput("A"); component!.handleInput("\u001b[D"); component!.handleInput("B"); component!.handleInput("\u001b[F"); component!.handleInput("\u000f"); component!.handleInput("C"); component!.handleInput("\r");
+    component!.handleInput("n"); component!.handleInput("\t"); component!.handleInput("\t"); component!.handleInput("A"); component!.handleInput("\u001b[D"); component!.handleInput("B"); component!.handleInput("\u001b[F"); component!.handleInput("\u000f"); component!.handleInput("C"); component!.handleInput("\r");
 
     await vi.waitFor(async () => expect(await s.getMacro("compose")).toMatchObject({ body: "BA\nC" }));
   });

@@ -1,5 +1,6 @@
 import type { Macro } from "./types.js";
 import { collectTemplateContext } from "./context.js";
+import { filterMacros } from "./macro-query.js";
 import { MacroStore, isValidMacroName } from "./macro-store.js";
 import { previewTemplate, resolveTemplate } from "./template.js";
 
@@ -52,6 +53,12 @@ async function promptText(ctx: CommandContext, label: string, initialValue?: str
   if (!value) throw err("Cancelled.");
   return value;
 }
+async function promptOptionalText(ctx: CommandContext, label: string, initialValue = ""): Promise<string> {
+  if (!hasUI(ctx) || !ctx.ui?.input) return initialValue;
+  const value = await ctx.ui.input(label, initialValue);
+  if (value === undefined) throw err("Cancelled.");
+  return value.trim();
+}
 async function promptBody(ctx: CommandContext, initialValue = ""): Promise<string> {
   if (!hasUI(ctx) || !ctx.ui?.editor) throw err("Macro body is required in non-interactive mode.");
   const value = await ctx.ui.editor("Macro body", initialValue);
@@ -62,10 +69,8 @@ async function confirm(ctx: CommandContext, message: string, title = "Confirm"):
   if (!hasUI(ctx) || !ctx.ui?.confirm) throw err("UI unavailable for confirmation.");
   return Boolean(await ctx.ui.confirm(title, message));
 }
-function filter(macros: Macro[], query: string): Macro[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return macros;
-  return macros.filter((m) => m.name.toLowerCase().includes(q) || m.body.toLowerCase().includes(q));
+function formatMacroListItem(macro: Macro): string {
+  return macro.tag ? `${macro.name} [${macro.tag}]` : macro.name;
 }
 
 const SUBCOMMANDS = new Set(["list", "new", "edit", "delete", "show", "find", "duplicate", "send"]);
@@ -131,15 +136,16 @@ async function sendMacro(args: string, ctx: CommandContext, deps: MacroCommandDe
 async function createMacroFlow(store: MacroStore, ctx: CommandContext, name?: string): Promise<Macro> {
   const finalName = name ?? await promptText(ctx, "Macro name");
   if (!isValidMacroName(finalName)) throw err(`Invalid macro name: ${finalName}.`);
+  const tag = await promptOptionalText(ctx, "Macro tag", "");
   const body = await promptBody(ctx);
-  const macro = await store.createMacro({ name: finalName, body });
+  const macro = await store.createMacro({ name: finalName, tag, body });
   notify(ctx, `Created macro: ${macro.name}`, "info");
   return macro;
 }
 
 export async function handleMacroList(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
-  const macros = filter(await storeOf(deps).listMacros(), args);
-  const text = macros.length ? macros.map((m) => m.name).join("\n") : "No macros found.";
+  const macros = filterMacros(await storeOf(deps).listMacros(), args);
+  const text = macros.length ? macros.map(formatMacroListItem).join("\n") : "No macros found.";
   output(ctx, macros, text);
 }
 export async function handleMacroNew(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
@@ -154,8 +160,9 @@ export async function handleMacroEdit(args: string, ctx: CommandContext, deps: M
   if (!macro) throw err(`Macro not found: ${name}.`);
   if (!hasUI(ctx)) throw err("/macro edit requires UI input/editor.");
   const nextName = await promptText(ctx, "Macro name", macro.name);
+  const tag = await promptOptionalText(ctx, "Macro tag", macro.tag);
   const body = await promptBody(ctx, macro.body);
-  const updated = await store.updateMacro(macro.name, { name: nextName, body });
+  const updated = await store.updateMacro(macro.name, { name: nextName, tag, body });
   notify(ctx, `Updated macro: ${updated.name}`, "info");
 }
 export async function handleMacroDelete(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
@@ -176,7 +183,7 @@ export async function handleMacroShow(args: string, ctx: CommandContext, deps: M
   output(
     ctx,
     { ...macro, preview: preview.text },
-    `${macro.name}\n${macro.body}\n\nPreview:\n${preview.text}`,
+    `${macro.name}${macro.tag ? ` [${macro.tag}]` : ""}\n${macro.body}\n\nPreview:\n${preview.text}`,
   );
 }
 export async function handleMacroFind(args: string, ctx: CommandContext, deps: MacroCommandDeps): Promise<void> {
