@@ -99,6 +99,36 @@ export class MacroPickerState {
 }
 
 function clamp(value: number, min: number, max: number): number { return Math.min(max, Math.max(min, value)); }
+const ANSI_TOKEN_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[P_^][\s\S]*?\x1b\\/g;
+function splitAnsiTokens(text: string): string[] {
+  const tokens: string[] = [];
+  ANSI_TOKEN_RE.lastIndex = 0;
+  let offset = 0;
+  for (const match of text.matchAll(ANSI_TOKEN_RE)) {
+    if (match.index > offset) tokens.push(...[...text.slice(offset, match.index)]);
+    tokens.push(match[0]);
+    offset = match.index + match[0].length;
+  }
+  if (offset < text.length) tokens.push(...[...text.slice(offset)]);
+  return tokens;
+}
+function wrapVisibleTokens(tokens: string[], width: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  let lineWidth = 0;
+  for (const token of tokens) {
+    const tokenWidth = visibleLength(token);
+    if (line && lineWidth + tokenWidth > width) {
+      lines.push(line);
+      line = "";
+      lineWidth = 0;
+    }
+    line += token;
+    lineWidth += tokenWidth;
+  }
+  lines.push(line);
+  return lines;
+}
 function hasTui(ctx: CommandContext): boolean { return ctx.mode === "tui" && ctx.hasUI === true && Boolean(ctx.ui); }
 export async function openMacroPicker(ctx: CommandContext, deps: MacroCommandDeps, options: PickerOptions = {}): Promise<void> {
   if (!hasTui(ctx)) throw new Error("Macro picker is only available in Pi TUI mode. Use direct /macro commands in non-TUI modes.");
@@ -187,11 +217,7 @@ class MacroPickerComponent {
     if (this.mode === "form" && this.form) {
       lines.push(row(` ${style(this.theme, "accent", `${this.form.mode} macro`)} · ${style(this.theme, "muted", "Tab fields · Enter save · Ctrl-O newline · Esc cancel")}`));
       for (const f of formFields) {
-        const active = this.form.focus === f;
-        const marker = active ? style(this.theme, "accent", "›") : " ";
-        const label = style(this.theme, "muted", `${f}:`);
-        const value = this.renderFormValue(f);
-        lines.push(row(`${marker} ${label} ${value}`));
+        for (const formRow of this.renderFormFieldRows(f, inner)) lines.push(row(formRow));
       }
       if (this.form.error) lines.push(row(` ${style(this.theme, "error", this.form.error)}`));
     } else if (this.mode === "confirmDelete") {
@@ -251,17 +277,47 @@ class MacroPickerComponent {
     if (data.length === 1 && data.charCodeAt(0) >= 32) this.insertText(data);
     this.requestRender();
   }
-  private renderFormValue(field: FormField): string {
+  private renderFormFieldRows(field: FormField, innerWidth: number): string[] {
+    const form = this.form!;
+    const active = form.focus === field;
+    const marker = active ? style(this.theme, "accent", "›") : " ";
+    const label = style(this.theme, "muted", `${field}:`);
+    const prefix = `${marker} ${label} `;
+    const continuationPrefix = " ".repeat(visibleLength(prefix));
+    const valueWidth = Math.max(1, innerWidth - visibleLength(prefix));
+    return this.renderFormValue(field, valueWidth).map((value, index) => `${index === 0 ? prefix : continuationPrefix}${value}`);
+  }
+  private renderFormValue(field: FormField, width: number): string[] {
     const form = this.form!;
     const raw = form.fields[field];
     const cursor = form.focus === field ? form.cursors[field] : -1;
     const display = raw.replace(/\n/g, "↵");
     const displayCursor = cursor < 0 ? -1 : raw.slice(0, cursor).replace(/\n/g, "↵").length;
-    if (displayCursor < 0) return display || style(this.theme, "dim", field === "body" ? "(prompt body)" : "(empty)");
-    const before = display.slice(0, displayCursor);
-    const current = display[displayCursor] ?? " ";
-    const after = display.slice(displayCursor + (display[displayCursor] ? 1 : 0));
-    return `${before}${style(this.theme, "accent", `▌${current}`)}${after}`;
+    if (displayCursor < 0) return display ? wrapVisibleTokens(splitAnsiTokens(display), width) : [style(this.theme, "dim", field === "body" ? "(prompt body)" : "(empty)")];
+    const clampedCursor = clamp(displayCursor, 0, display.length);
+    const tokens: string[] = [];
+    let offset = 0;
+    let cursorRendered = false;
+    for (const token of splitAnsiTokens(display)) {
+      const tokenWidth = visibleLength(token);
+      const nextOffset = offset + token.length;
+      const cursorAtToken = !cursorRendered && clampedCursor <= offset;
+      const cursorInsideVisibleToken = !cursorRendered && tokenWidth > 0 && clampedCursor < nextOffset;
+      if (cursorAtToken || cursorInsideVisibleToken) {
+        if (tokenWidth > 0) {
+          tokens.push(style(this.theme, "accent", `▌${token}`));
+          cursorRendered = true;
+          offset = nextOffset;
+          continue;
+        }
+        tokens.push(style(this.theme, "accent", "▌ "));
+        cursorRendered = true;
+      }
+      tokens.push(token);
+      offset = nextOffset;
+    }
+    if (!cursorRendered) tokens.push(style(this.theme, "accent", "▌ "));
+    return wrapVisibleTokens(tokens, width);
   }
   private insertText(text: string): void { const f = this.form!; const field = f.focus; const cursor = f.cursors[field]; f.fields[field] = f.fields[field].slice(0, cursor) + text + f.fields[field].slice(cursor); f.cursors[field] = cursor + text.length; }
   private showFormError(error: unknown): void { if (this.form) { this.form.error = error instanceof Error ? error.message : String(error); this.requestRender(); } else this.showError(error); }

@@ -4,8 +4,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MacroStore } from "../src/macro-store.js";
 import { MacroPickerState, openMacroPicker } from "../src/picker.js";
+import { visibleLength } from "../src/renderer.js";
 import type { CommandContext } from "../src/commands.js";
 
+const MODAL_TEST_WIDTH = 44;
 const tempDirs: string[] = [];
 async function store(): Promise<MacroStore> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "pi-macro-picker-"));
@@ -100,6 +102,56 @@ describe("openMacroPicker", () => {
     expect(rendered).toContain("[muted:name:]");
     expect(rendered).toContain("[muted:body:]");
     expect(rendered).toContain("[accent:▌ ]");
+  });
+
+  it("wraps long typed form values within the modal width", async () => {
+    const s = await store();
+    let component: TestComponent | undefined;
+    const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
+    await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
+
+    const longName = `macro-${"n".repeat(36)}-name-tail`;
+    const longBody = `body-${"b".repeat(MODAL_TEST_WIDTH)}-body-tail`;
+    component!.handleInput("n");
+    for (const ch of longName) component!.handleInput(ch);
+    component!.handleInput("\t");
+    for (const ch of longBody) component!.handleInput(ch);
+
+    const lines = component!.render(MODAL_TEST_WIDTH);
+    const rendered = lines.join("\n");
+
+    expect(lines.length).toBeGreaterThan(5);
+    expect(lines.every((line) => visibleLength(line) <= MODAL_TEST_WIDTH)).toBe(true);
+    expect(rendered).toContain("name-tail");
+    expect(rendered).toContain("body-tail");
+  });
+
+  it("wraps ANSI-containing form values without splitting escape sequences", async () => {
+    const s = await store();
+    await s.createMacro({ name: "styled", body: `${"x".repeat(30)}\x1b[31mred-tail\x1b[0m` });
+    let component: TestComponent | undefined;
+    const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
+    await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
+
+    component!.handleInput("e");
+    let lines = component!.render(MODAL_TEST_WIDTH);
+    let rendered = lines.join("\n");
+    expect(lines.length).toBeGreaterThan(5);
+    expect(lines.every((line) => visibleLength(line) <= MODAL_TEST_WIDTH)).toBe(true);
+    expect(rendered).toContain("\x1b[31m");
+    expect(rendered).toContain("\x1b[0m");
+    expect(rendered).toContain("red-");
+    expect(rendered).toContain("tail");
+
+    component!.handleInput("\t");
+    lines = component!.render(MODAL_TEST_WIDTH);
+    rendered = lines.join("\n");
+    expect(lines.length).toBeGreaterThan(5);
+    expect(lines.every((line) => visibleLength(line) <= MODAL_TEST_WIDTH)).toBe(true);
+    expect(rendered).toContain("\x1b[31m");
+    expect(rendered).toContain("\x1b[0m");
+    expect(rendered).toContain("red-");
+    expect(rendered).toContain("tail");
   });
 
   it("inline create from empty query does not use Pi dialogs", async () => {
