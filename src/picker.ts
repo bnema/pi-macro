@@ -99,6 +99,23 @@ export class MacroPickerState {
 }
 
 function clamp(value: number, min: number, max: number): number { return Math.min(max, Math.max(min, value)); }
+function isTextInputChunk(data: string): boolean {
+  if (data.length === 0) return false;
+  return [...data].every((ch) => {
+    if (ch === "\n" || ch === "\r" || ch === "\t") return true;
+    const code = ch.charCodeAt(0);
+    return code >= 32 && code !== 0x7f && !(code >= 0x80 && code <= 0x9f);
+  });
+}
+function normalizeTextInput(text: string): string { return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n"); }
+const BRACKETED_PASTE_START = "\u001b[200~";
+const BRACKETED_PASTE_END = "\u001b[201~";
+function trailingMarkerPrefixLength(text: string, marker: string): number {
+  for (let length = Math.min(marker.length - 1, text.length); length >= 1; length--) {
+    if (text.endsWith(marker.slice(0, length))) return length;
+  }
+  return 0;
+}
 const ANSI_TOKEN_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[P_^][\s\S]*?\x1b\\/g;
 function splitAnsiTokens(text: string): string[] {
   const tokens: string[] = [];
@@ -163,6 +180,9 @@ class MacroPickerComponent {
   private form?: PickerForm;
   private preview?: TemplateResolutionResult;
   private pendingMutation = false;
+  private pasteBuffer = "";
+  private pendingPasteStart = "";
+  private isInPaste = false;
   constructor(private state: MacroPickerState, private ctx: CommandContext, private deps: MacroCommandDeps, private theme: Theme & PickerTheme, private done: () => void, private input: string) {}
   invalidate(): void {}
   async reloadAndPreview(): Promise<void> { this.state.setMacros(await (this.deps.store ?? new MacroStore()).listMacros()); await this.state.refreshPreview(this.ctx, this.input); }
@@ -173,7 +193,11 @@ class MacroPickerComponent {
     const afterChange = () => { void this.onChange?.().catch((error) => this.showError(error)); };
     const run = (fn: () => Promise<void>) => { void fn().then(afterChange).catch((error) => this.showError(error)); };
     const runSync = (fn: () => void) => { try { fn(); this.requestRender(); } catch (error) { this.showError(error); } };
-    if (this.mode === "form") { this.handleFormInput(data); return; }
+    if (this.mode === "form") {
+      if (this.handleBracketedPasteInput(data, () => this.requestRender())) return;
+      this.handleFormInput(data);
+      return;
+    }
     if (this.mode === "confirmDelete") {
       if (this.pendingMutation) return;
       if (matchesKey(data, "escape") || data === "n") { this.mode = "list"; this.message = undefined; this.requestRender(); return; }
@@ -182,6 +206,7 @@ class MacroPickerComponent {
     }
     if (this.mode === "preview") { if (matchesKey(data, "escape")) { this.mode = "list"; this.requestRender(); } return; }
     let changed = true;
+    if (this.handleBracketedPasteInput(data, afterChange)) return;
     if (matchesKey(data, "escape")) { this.done(); return; }
     if (matchesKey(data, "up")) this.state.move(-1);
     else if (matchesKey(data, "down")) this.state.move(1);
@@ -201,7 +226,7 @@ class MacroPickerComponent {
     else if (matchesKey(data, "ctrl+y")) { changed = false; runSync(() => this.openDuplicateForm()); }
     else if (matchesKey(data, "ctrl+p")) { changed = false; run(() => this.openPreview()); }
     else if (data === "/") { this.searchMode = true; this.state.clearQuery(); }
-    else if (data.length === 1 && data.charCodeAt(0) >= 32) this.state.type(data);
+    else if (isTextInputChunk(data)) this.state.type(normalizeTextInput(data));
     else changed = false;
     if (changed) afterChange();
   }
@@ -274,8 +299,60 @@ class MacroPickerComponent {
     if (matchesKey(data, "delete")) { form.fields[field] = value.slice(0, cursor) + value.slice(cursor + 1); this.requestRender(); return; }
     if (matchesKey(data, "ctrl+o")) { if (field === "body") this.insertText("\n"); this.requestRender(); return; }
     if (matchesKey(data, "enter") || matchesKey(data, "return")) { void this.saveForm().then(() => this.requestRender()).catch((error) => this.showFormError(error)); return; }
-    if (data.length === 1 && data.charCodeAt(0) >= 32) this.insertText(data);
+    if (isTextInputChunk(data)) this.insertText(normalizeTextInput(data));
     this.requestRender();
+  }
+  private handleBracketedPasteInput(data: string, afterPaste: () => void): boolean {
+    const hadPendingPasteStart = this.pendingPasteStart.length > 0;
+    if (hadPendingPasteStart) {
+      data = this.pendingPasteStart + data;
+      this.pendingPasteStart = "";
+    }
+
+    if (this.isInPaste) return this.consumeBracketedPaste(data, afterPaste);
+
+    const startIndex = data.indexOf(BRACKETED_PASTE_START);
+    if (startIndex === -1) {
+      const partialLength = trailingMarkerPrefixLength(data, BRACKETED_PASTE_START);
+      if (partialLength > 0 && data !== "\u001b") {
+        const beforePartial = data.slice(0, -partialLength);
+        if (beforePartial.length > 0) this.handleInput(beforePartial);
+        this.pendingPasteStart = data.slice(-partialLength);
+        return true;
+      }
+      if (hadPendingPasteStart) {
+        this.handleInput(data);
+        return true;
+      }
+      return false;
+    }
+
+    const beforePaste = data.slice(0, startIndex);
+    if (beforePaste.length > 0) this.handleInput(beforePaste);
+    this.isInPaste = true;
+    this.pasteBuffer = "";
+    return this.consumeBracketedPaste(data.slice(startIndex + BRACKETED_PASTE_START.length), afterPaste);
+  }
+  private consumeBracketedPaste(data: string, afterPaste: () => void): boolean {
+    this.pasteBuffer += data;
+    const endIndex = this.pasteBuffer.indexOf(BRACKETED_PASTE_END);
+    if (endIndex === -1) return true;
+
+    const pasteContent = this.pasteBuffer.substring(0, endIndex);
+    const remaining = this.pasteBuffer.substring(endIndex + BRACKETED_PASTE_END.length);
+    this.isInPaste = false;
+    this.pasteBuffer = "";
+
+    if (pasteContent.length > 0) {
+      this.insertTextInput(normalizeTextInput(pasteContent));
+      afterPaste();
+    }
+    if (remaining.length > 0) this.handleInput(remaining);
+    return true;
+  }
+  private insertTextInput(text: string): void {
+    if (this.mode === "form") this.insertText(text);
+    else this.state.type(text);
   }
   private renderFormFieldRows(field: FormField, innerWidth: number): string[] {
     const form = this.form!;

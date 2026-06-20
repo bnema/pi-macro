@@ -126,6 +126,46 @@ describe("openMacroPicker", () => {
     expect(rendered).toContain("body-tail");
   });
 
+  it("accepts pasted text chunks in the list query", async () => {
+    const s = await store();
+    await s.createMacro({ name: "review", body: "Review body" });
+    let component: TestComponent | undefined;
+    const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
+    await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
+
+    component!.handleInput("rev");
+
+    expect(component!.render(80).join("\n")).toContain("query: rev");
+  });
+
+  it("accepts split bracketed paste chunks in the list query", async () => {
+    const s = await store();
+    await s.createMacro({ name: "review", body: "Review body" });
+    let component: TestComponent | undefined;
+    const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
+    await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
+
+    component!.handleInput("\u001b[20");
+    component!.handleInput("0~rev\u001b[201~");
+
+    expect(component!.render(80).join("\n")).toContain("query: rev");
+  });
+
+  it("accepts prefixed and trailing input around bracketed paste in form fields", async () => {
+    const s = await store();
+    let component: TestComponent | undefined;
+    const ui = { custom: vi.fn(async (factory: TestFactory) => { component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn()); }) };
+    await openMacroPicker(ctx(ui), { store: s, sendUserMessage: vi.fn() });
+
+    component!.handleInput("n");
+    component!.handleInput("pasted-name");
+    component!.handleInput("\t\u001b[20");
+    component!.handleInput("0~line 1\r");
+    component!.handleInput("\nline 2\u001b[201~\u0013");
+
+    await vi.waitFor(async () => expect(await s.getMacro("pasted-name")).toMatchObject({ body: "line 1\nline 2" }));
+  });
+
   it("wraps ANSI-containing form values without splitting escape sequences", async () => {
     const s = await store();
     await s.createMacro({ name: "styled", body: `${"x".repeat(30)}\x1b[31mred-tail\x1b[0m` });
