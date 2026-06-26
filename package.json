@@ -33,6 +33,11 @@
       "./extensions/index.ts"
     ]
   },
+  "omp": {
+    "extensions": [
+      "./extensions/index.ts"
+    ]
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",

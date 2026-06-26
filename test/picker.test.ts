@@ -51,12 +51,27 @@ describe("openMacroPicker", () => {
   type TestTheme = { fg?: (color: string, text: string) => string; bg?: (color: string, text: string) => string };
   type TestFactory = (tui: { requestRender: () => void }, theme: TestTheme, keybindings: Record<string, never>, done: () => void) => TestComponent;
 
-  function ctx(ui: Record<string, unknown>): CommandContext {
-    return { mode: "tui", hasUI: true, cwd: process.cwd(), isIdle: () => true, ui: ui as CommandContext["ui"] };
+  function ctx(ui: Record<string, unknown>, overrides: Partial<CommandContext> = {}): CommandContext {
+    return { mode: "tui", hasUI: true, cwd: process.cwd(), isIdle: () => true, ui: ui as CommandContext["ui"], ...overrides };
   }
 
-  it("fails clearly outside TUI", async () => {
-    await expect(openMacroPicker({ mode: "print", hasUI: false }, { store: await store(), sendUserMessage: vi.fn() })).rejects.toThrow("only available in Pi TUI mode");
+  it("opens for OMP interactive UI contexts with custom picker support", async () => {
+    const ui = { custom: vi.fn(async (_factory: TestFactory, _options: unknown) => undefined) };
+
+    await openMacroPicker(ctx(ui, { mode: "interactive" }), { store: await store(), sendUserMessage: vi.fn() });
+
+    expect(ui.custom).toHaveBeenCalledWith(expect.any(Function), {
+      overlay: true,
+      overlayOptions: { width: "90%", maxHeight: "80%", anchor: "center" },
+    });
+  });
+
+  it("rejects without interactive custom UI support and does not call custom when hasUI is false", async () => {
+    const custom = vi.fn(async (_factory: TestFactory, _options: unknown) => undefined);
+
+    await expect(openMacroPicker(ctx({ custom }, { mode: "interactive", hasUI: false }), { store: await store(), sendUserMessage: vi.fn() })).rejects.toThrow("requires interactive custom UI support");
+
+    expect(custom).not.toHaveBeenCalled();
   });
 
   it("uses pi-fzf-style percentage overlay sizing", async () => {
