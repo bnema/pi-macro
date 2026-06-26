@@ -12,10 +12,10 @@ Date: 2026-06-07
 
 ## UI APIs and mode behavior
 
-- `ctx.ui.custom()` supports custom TUI components and overlays. The macro picker should only run in `ctx.mode === "tui"`.
+- `ctx.ui.custom()` supports custom components and overlays. The macro picker should only run when interactive custom UI support is present: `ctx.hasUI === true`, `ctx.ui` exists, and `typeof ctx.ui.custom === "function"`.
 - `ctx.ui.input()`, `ctx.ui.editor()`, `ctx.ui.select()`, and `ctx.ui.confirm()` are available for interactive flows when `ctx.hasUI` is true.
-- `ctx.mode` distinguishes `"tui"`, `"rpc"`, `"json"`, and `"print"`.
-- `ctx.hasUI` is true for TUI/RPC and false for print/JSON. Print/JSON flows must not open pickers or prompts and should fail clearly when required information is missing.
+- Legacy Pi may expose mode values such as `"tui"`, `"rpc"`, `"json"`, and `"print"`; picker logic must not depend on `ctx.mode === "tui"` because OMP interactive hosts may expose UI capabilities under a different mode.
+- Print/JSON and other non-UI flows must not open pickers or prompts and should fail clearly when required information is missing.
 
 ## Context APIs
 

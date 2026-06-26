@@ -146,16 +146,18 @@ function wrapVisibleTokens(tokens: string[], width: number): string[] {
   lines.push(line);
   return lines;
 }
-function hasTui(ctx: CommandContext): boolean { return ctx.mode === "tui" && ctx.hasUI === true && Boolean(ctx.ui); }
+type CustomUi = (factory: (tui: { requestRender: () => void }, theme: Theme, keybindings: unknown, done: () => void) => MacroPickerComponent, options: unknown) => Promise<void> | void;
+function getCustomUi(ctx: CommandContext): CustomUi | undefined {
+  if (ctx.hasUI !== true || !ctx.ui) return undefined;
+  const custom = (ctx.ui as CommandContext["ui"] & { custom?: unknown }).custom;
+  return typeof custom === "function" ? custom as CustomUi : undefined;
+}
 export async function openMacroPicker(ctx: CommandContext, deps: MacroCommandDeps, options: PickerOptions = {}): Promise<void> {
-  if (!hasTui(ctx)) throw new Error("Macro picker is only available in Pi TUI mode. Use direct /macro commands in non-TUI modes.");
+  const custom = getCustomUi(ctx);
+  if (!custom) throw new Error("Macro picker requires interactive custom UI support. Use direct /macro commands in non-interactive modes.");
   const store = deps.store ?? new MacroStore();
   const state = new MacroPickerState(options.query ?? "");
   state.setMacros(await store.listMacros());
-
-  type CustomUi = (factory: (tui: { requestRender: () => void }, theme: Theme, keybindings: unknown, done: () => void) => MacroPickerComponent, options: unknown) => Promise<void> | void;
-  const custom = (ctx.ui as CommandContext["ui"] & { custom?: CustomUi }).custom;
-  if (!custom) throw new Error("Macro picker requires Pi custom TUI API.");
   await custom((tui: { requestRender: () => void }, theme: Theme, _keybindings: unknown, done: () => void) => {
     const component = new MacroPickerComponent(state, ctx, { ...deps, store }, theme as unknown as Theme & PickerTheme, done, options.input ?? "");
     component.onRequestRender = () => tui.requestRender();
